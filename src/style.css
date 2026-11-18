@@ -1,0 +1,253 @@
+:root {
+  --bg: #eceae6;
+  --panel: rgba(255, 255, 255, 0.92);
+  --border: #d9d6d0;
+  --text: #2b2d31;
+  --muted: #6b6e75;
+  --accent: #2a6df4;
+  --danger: #d64545;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  color: var(--text);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+#viewport {
+  position: fixed;
+  inset: 0;
+}
+
+#c {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+}
+
+.toolbar {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  /* stay between the side panels (210px + 12px margin + gap each side); wrap if needed */
+  max-width: calc(100% - 2 * 240px);
+  width: max-content;
+  flex-wrap: wrap;
+  justify-content: center;
+  display: flex;
+  gap: 6px;
+  padding: 5px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  user-select: none;
+}
+
+.toolbar .group {
+  display: flex;
+  gap: 2px;
+}
+
+.toolbar button {
+  padding: 6px 8px;
+}
+
+.toolbar .group + .group {
+  border-left: 1px solid var(--border);
+  padding-left: 6px;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button:hover { background: #f0eee9; }
+button:disabled { opacity: 0.4; cursor: default; background: transparent; }
+button.active { background: var(--accent); color: #fff; }
+button.active kbd { color: rgba(255, 255, 255, 0.75); border-color: rgba(255, 255, 255, 0.4); }
+
+kbd {
+  font: 11px ui-monospace, monospace;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 3px;
+  margin-left: 4px;
+}
+
+.panel {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  width: 210px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.panel.left {
+  right: auto;
+  left: 12px;
+}
+
+.panel section,
+.panel details,
+.panel .fields {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.panel section[hidden] { display: none; }
+
+.panel details:not([open]) { gap: 0; }
+
+.panel .fields {
+  /* plain stacking inside the card, no second border */
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+.panel summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  user-select: none;
+}
+
+.panel h4 {
+  margin: 4px 0 -2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.panel input[type="color"] {
+  width: 44px;
+  height: 24px;
+  padding: 1px 2px;
+  cursor: pointer;
+}
+
+.panel .fields > input[type="range"] {
+  width: 100%;
+  margin: -4px 0 0;
+}
+
+.panel h3 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.panel label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.panel input, .panel select {
+  font: inherit;
+  width: 80px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #fff;
+}
+
+.panel input.check {
+  width: auto;
+  accent-color: var(--accent);
+}
+
+.panel > section > input[type="range"] {
+  width: 100%;
+  margin: -4px 0 0;
+}
+
+.panel input[type="range"] {
+  padding: 0;
+  border: none;
+  background: transparent;
+  accent-color: var(--accent);
+}
+
+.panel button.danger {
+  color: var(--danger);
+  border-color: var(--border);
+}
+
+.hint {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  max-width: calc(100% - 24px);
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 56px;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  background: var(--text);
+  color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  pointer-events: none;
+}
+
+.toast.error { background: var(--danger); }
+
+.measure {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 2px 7px;
+  background: var(--text);
+  color: #fff;
+  border-radius: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
