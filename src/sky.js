@@ -42,13 +42,49 @@ export function createSky() {
   dome.frustumCulled = false;
   dome.renderOrder = -2; // drawn first; floor and everything else go on top
 
+  // Environment lighting: a small copy of the sky with the ground beneath it,
+  // baked into an environment map. Surfaces then get soft, directional light
+  // from the whole sky plus bounce light from the ground.
+  // Its sky is a softened copy (top colour pulled toward the horizon) so shade
+  // is gently cool rather than strongly blue.
+  const envMat = mat.clone();
+  const envUniforms = envMat.uniforms;
+  envUniforms.uSunDir = uniforms.uSunDir; // shared
+  const envScene = new THREE.Scene();
+  envScene.add(new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), envMat));
+  const envGround = new THREE.Mesh(
+    new THREE.CircleGeometry(100, 32).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial()
+  );
+  envGround.position.y = -1;
+  envScene.add(envGround);
+  let pmrem = null;
+  let envTarget = null;
+  let envDirty = true;
+
   return {
     object: dome,
-    setColors(top, horizon) {
+    setColors(top, horizon, ground) {
       uniforms.uTop.value.set(top);
       uniforms.uHorizon.value.set(horizon);
+      envUniforms.uHorizon.value.set(horizon);
+      envUniforms.uTop.value.set(top).lerp(envUniforms.uHorizon.value, 0.6);
+      if (ground) envGround.material.color.set(ground);
+      envDirty = true;
     },
-    setSunDirection(dir) { uniforms.uSunDir.value.copy(dir).normalize(); },
+    setSunDirection(dir) {
+      uniforms.uSunDir.value.copy(dir).normalize();
+      envDirty = true;
+    },
     update(camera) { dome.position.copy(camera.position); },
+    /** Re-bake the environment map if the sky changed (at most once per frame). */
+    updateEnvironment(renderer, scene) {
+      if (!envDirty) return;
+      envDirty = false;
+      pmrem ??= new THREE.PMREMGenerator(renderer);
+      envTarget?.dispose();
+      envTarget = pmrem.fromScene(envScene, 0, 0.1, 500);
+      scene.environment = envTarget.texture;
+    },
   };
 }

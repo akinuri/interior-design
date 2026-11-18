@@ -11,17 +11,30 @@ const DEFAULTS = {
   fog: true,
   fogDistance: 400,
   gridFade: 40,
-  skyLight: 2.6,
-  sunLight: 2.8,
+  skyLight: 0.35, // flat fill; most ambient light comes from envLight (sky bounce)
+  sunLight: 3.2,
   sunAzimuth: 34,
   sunElevation: 54,
   shadows: true,
   exposure: 1,
+  realism: true,
+  ambientOcclusion: 0.8,
+  aoRadius: 0.6,
+  envLight: 0.45,
+  shadowSoftness: 3,
+  toneMapping: 'neutral',
 };
 
-// Drives the panel UI: one entry per control, `heading` entries are sub-titles.
+const TONE_MAPPINGS = {
+  neutral: THREE.NeutralToneMapping,
+  agx: THREE.AgXToneMapping,
+  aces: THREE.ACESFilmicToneMapping,
+};
+
+// Drives the panel UI: one entry per control. `heading` entries are sub-titles;
+// a heading's `card` (default: the previous one) says which panel card it goes in.
 const FIELDS = [
-  { heading: 'Colors' },
+  { heading: 'Colors', card: 'scene' },
   { key: 'skyTop', label: 'Sky', type: 'color' },
   { key: 'horizon', label: 'Horizon / haze', type: 'color' },
   { key: 'ground', label: 'Ground', type: 'color' },
@@ -35,22 +48,34 @@ const FIELDS = [
   { key: 'sunLight', label: 'Sun light', type: 'range', min: 0, max: 4, step: 0.05 },
   { key: 'sunAzimuth', label: 'Sun direction', type: 'range', min: 0, max: 360, step: 1, unit: '°' },
   { key: 'sunElevation', label: 'Sun height', type: 'range', min: 5, max: 90, step: 1, unit: '°' },
-  { key: 'shadows', label: 'Shadows', type: 'check' },
+
+  { heading: 'Mode', card: 'render' },
+  { key: 'realism', label: 'Realistic rendering', type: 'check' },
+  { heading: 'Light' },
+  { key: 'envLight', label: 'Sky bounce light', type: 'range', min: 0, max: 2, step: 0.05, realism: true },
   { key: 'exposure', label: 'Exposure', type: 'range', min: 0.3, max: 2, step: 0.05 },
+  { key: 'toneMapping', label: 'Film look', type: 'select', options: [['neutral', 'Neutral'], ['agx', 'Soft (AgX)'], ['aces', 'Contrasty (ACES)']] },
+  { heading: 'Shadows' },
+  { key: 'shadows', label: 'Sun shadows', type: 'check' },
+  { key: 'shadowSoftness', label: 'Shadow softness', type: 'range', min: 0, max: 10, step: 0.5, realism: true },
+  { key: 'ambientOcclusion', label: 'Corner shading (AO)', type: 'range', min: 0, max: 1, step: 0.05, realism: true },
+  { key: 'aoRadius', label: 'AO reach', type: 'range', min: 0.1, max: 2, step: 0.05, unit: 'm', realism: true },
 ];
 
 /**
- * Scene look & feel: colours, fog / grid fade, lights, exposure.
- * Builds its own controls into `container` and persists values.
+ * Scene look & feel (colours, fog / grid fade, sun & sky) and rendering
+ * (bounce light, exposure, film look, shadows, AO). Builds its controls into
+ * `containers.scene` / `containers.render`, each with its own reset button,
+ * and persists values.
  */
-export function createSceneSettings({ container, resetButton, scene, renderer, skyLight, sun, skyDome, ground }) {
+export function createSceneSettings({ containers, resetButtons, scene, renderer, pipeline, skyLight, sun, skyDome, ground }) {
   const values = { ...DEFAULTS };
   try { Object.assign(values, JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')); } catch { /* ignore */ }
   const white = new THREE.Color(0xffffff);
 
   function apply() {
     const v = values;
-    skyDome.setColors(v.skyTop, v.horizon);
+    skyDome.setColors(v.skyTop, v.horizon, v.ground);
     // Haze takes the horizon colour so the ground melts into the sky.
     scene.fog = v.fog ? new THREE.Fog(v.horizon, v.fogDistance * 0.2, v.fogDistance) : null;
     ground.floorMaterial.color.set(v.ground);
@@ -60,14 +85,25 @@ export function createSceneSettings({ container, resetButton, scene, renderer, s
     // Ambient light: bluish from above, earth-coloured bounce from below.
     skyLight.color.set(v.skyTop).lerp(white, 0.65);
     skyLight.groundColor.set(v.ground);
-    skyLight.intensity = v.skyLight;
+    // With realism off, the bounce light is folded into the flat fill so overall
+    // brightness stays about the same.
+    skyLight.intensity = v.realism ? v.skyLight : v.skyLight + v.envLight * 4.5;
     sun.intensity = v.sunLight;
     const az = THREE.MathUtils.degToRad(v.sunAzimuth);
     const el = THREE.MathUtils.degToRad(v.sunElevation);
-    sun.position.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az)).multiplyScalar(30);
-    skyDome.setSunDirection(sun.position);
+    // Direction only; main keeps the sun (and its shadow area) centred on the view.
+    sun.userData.direction.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
+    skyDome.setSunDirection(sun.userData.direction);
     sun.castShadow = v.shadows;
     renderer.toneMappingExposure = v.exposure;
+
+    // Realism off: no AO, no bounce light, crisp shadows (the slider values are kept).
+    pipeline.setAmbientOcclusion(v.realism ? v.ambientOcclusion : 0);
+    pipeline.setAmbientOcclusionRadius(v.aoRadius);
+    scene.environmentIntensity = v.realism ? v.envLight : 0;
+    sun.shadow.radius = v.realism ? v.shadowSoftness : 1;
+    for (const { input, f } of Object.values(inputs)) if (f.realism) input.disabled = !v.realism;
+    renderer.toneMapping = TONE_MAPPINGS[v.toneMapping] ?? THREE.NeutralToneMapping;
 
     // Store only what the user changed, so future default tweaks still apply.
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(changedFrom(DEFAULTS, values) ?? {})); } catch { /* ignore */ }
@@ -78,17 +114,26 @@ export function createSceneSettings({ container, resetButton, scene, renderer, s
   const outputs = {};
   const fmt = (f, val) => `${Number(val).toFixed(f.step < 1 ? 2 : 0)}${f.unit ? ` ${f.unit}` : ''}`.replace(' °', '°');
 
+  const cardKeys = { scene: [], render: [] };
+  let card = 'scene';
   for (const f of FIELDS) {
     if (f.heading) {
+      card = f.card ?? card;
       const h = document.createElement('h4');
       h.textContent = f.heading;
-      container.append(h);
+      containers[card].append(h);
       continue;
     }
+    const container = containers[card];
+    cardKeys[card].push(f.key);
     const label = document.createElement('label');
     label.textContent = f.label;
-    const input = document.createElement('input');
-    input.type = f.type === 'check' ? 'checkbox' : f.type;
+    const input = document.createElement(f.type === 'select' ? 'select' : 'input');
+    if (f.type === 'select') {
+      for (const [value, text] of f.options) input.append(new Option(text, value));
+    } else {
+      input.type = f.type === 'check' ? 'checkbox' : f.type;
+    }
     if (f.type === 'check') input.className = 'check';
     if (f.type === 'range') Object.assign(input, { min: f.min, max: f.max, step: f.step });
 
@@ -120,11 +165,13 @@ export function createSceneSettings({ container, resetButton, scene, renderer, s
     }
   }
 
-  resetButton.addEventListener('click', () => {
-    Object.assign(values, DEFAULTS);
-    sync();
-    apply();
-  });
+  for (const [c, button] of Object.entries(resetButtons)) {
+    button.addEventListener('click', () => {
+      for (const k of cardKeys[c]) values[k] = DEFAULTS[k];
+      sync();
+      apply();
+    });
+  }
 
   sync();
   apply();

@@ -96,7 +96,7 @@ kbd {
   top: 12px;
   right: 12px;
   width: 210px;
-  max-height: calc(100vh - 24px);
+  max-height: calc(100vh - 60px); /* leave room for the FPS readout below */
   overflow-y: auto;
   scrollbar-width: thin;
   display: flex;
@@ -149,6 +149,12 @@ kbd {
   font-size: 11px;
   font-weight: 600;
   color: var(--muted);
+}
+
+.panel input:disabled,
+.panel select:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .panel input[type="color"] {
@@ -222,6 +228,22 @@ kbd {
   font-size: 13px;
   pointer-events: none;
 }
+
+.fps {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  padding: 4px 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font: 12px ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.fps.slow { color: var(--danger); }
 
 .toast {
   position: fixed;

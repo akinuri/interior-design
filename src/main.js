@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createGround } from './grid.js';
 import { Walls, wallLength, DEFAULT_WALL_COLOR } from './walls.js';
 import { createSky } from './sky.js';
+import { createRenderPipeline } from './render.js';
 import { createSceneSettings, pickValid, changedFrom } from './sceneSettings.js';
 import { createTools } from './tools.js';
 import { createPerson } from './person.js';
@@ -13,7 +14,7 @@ const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap; // supports adjustable softness (shadow.radius)
 // Without tone mapping, sun + sky on upward faces overshoot 1.0 and clip;
 // Neutral tone mapping rolls highlights off while leaving mid-tones true.
 renderer.toneMapping = THREE.NeutralToneMapping;
@@ -47,10 +48,23 @@ controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.ROTATE, 
 const sky = new THREE.HemisphereLight(0xffffff, 0xb8b2a8);
 scene.add(sky);
 const sun = new THREE.DirectionalLight(0xfff3e2); // slightly warm daylight
-sun.shadow.mapSize.set(2048, 2048);
-Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 80 });
-sun.shadow.bias = -0.0005;
-scene.add(sun);
+// The shadow covers a 40 m square that follows the orbit point (see placeSun),
+// at high resolution so edges stay clean.
+sun.shadow.mapSize.set(4096, 4096);
+Object.assign(sun.shadow.camera, { left: -20, right: 20, top: 20, bottom: -20, near: 1, far: 120 });
+sun.shadow.bias = -0.0003;
+sun.shadow.normalBias = 0.02;
+sun.userData.direction = new THREE.Vector3(0, 1, 0); // set by the scene settings
+scene.add(sun, sun.target);
+function placeSun() {
+  const focus = person.eye ? camera.position : controls.target;
+  // Snap to whole shadow-map texels so shadow edges don't shimmer while moving.
+  const texel = 40 / 4096;
+  const fx = Math.round(focus.x / texel) * texel;
+  const fz = Math.round(focus.z / texel) * texel;
+  sun.target.position.set(fx, 0, fz);
+  sun.position.set(fx, 0, fz).addScaledVector(sun.userData.direction, 60);
+}
 
 const ground = createGround();
 scene.add(ground.object);
@@ -58,10 +72,12 @@ scene.add(ground.object);
 const skyDome = createSky();
 scene.add(skyDome.object);
 
+const pipeline = createRenderPipeline({ renderer, scene, camera: persp });
+
 const environment = createSceneSettings({
-  container: document.getElementById('scene-fields'),
-  resetButton: document.getElementById('scene-reset'),
-  scene, renderer, skyLight: sky, sun, skyDome, ground,
+  containers: { scene: document.getElementById('scene-fields'), render: document.getElementById('render-fields') },
+  resetButtons: { scene: document.getElementById('scene-reset'), render: document.getElementById('render-reset') },
+  scene, renderer, pipeline, skyLight: sky, sun, skyDome, ground,
 });
 
 // --- model & tools ---
@@ -394,6 +410,7 @@ const viewport = $('viewport');
 function resize() {
   const { clientWidth: w, clientHeight: h } = viewport;
   renderer.setSize(w, h, false);
+  pipeline.setSize(w, h);
   persp.aspect = w / h;
   persp.updateProjectionMatrix();
   updateOrthoFrustum();
@@ -413,9 +430,24 @@ function updateMeasureLabel() {
   measure.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
 }
 
+// FPS readout, averaged over half-second windows.
+const fpsEl = $('fps');
+const fpsWindow = { frames: 0, time: 0 };
+function updateFps(dt) {
+  fpsWindow.frames++;
+  fpsWindow.time += dt;
+  if (fpsWindow.time < 0.5) return;
+  const fps = fpsWindow.frames / fpsWindow.time;
+  fpsEl.textContent = `${Math.round(fps)} fps · ${(1000 / fps).toFixed(1)} ms`;
+  fpsEl.classList.toggle('slow', fps < 30);
+  fpsWindow.frames = 0;
+  fpsWindow.time = 0;
+}
+
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
+  updateFps(dt);
   if (person.eye) {
     fly = null;
   } else {
@@ -431,9 +463,11 @@ renderer.setAnimationLoop(() => {
   }
   person.update(dt);
   skyDome.update(camera);
+  placeSun();
+  skyDome.updateEnvironment(renderer, scene);
   ground.update(camera);
   updateMeasureLabel();
-  renderer.render(scene, camera);
+  pipeline.render(camera);
 });
 
 tools.setTool('select');
