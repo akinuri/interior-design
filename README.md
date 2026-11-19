@@ -31,8 +31,8 @@ Then open the address it prints. A plain static server such as VS Code's Live Se
 | Finish a wall chain | Double-click, `Enter` or right-click |
 | Lock wall angle to 45° steps | Hold `Shift` while drawing |
 | Delete selected wall | `Delete` |
-| Eye view (walk with WASD, `Shift` to run) | `E` |
-| Top view / Parallel projection / Grid on-off | `T` / `O` / `G` |
+| Eye view (walk with WASD, `Shift` to run, `Space` to jump) | `E` |
+| Home (fit scene) / Top view / Parallel projection / Grid on-off | `H` / `T` / `O` / `G` |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Y` |
 | Save / Open | `Ctrl+S` / `Ctrl+O` (or drop a file onto the page) |
 

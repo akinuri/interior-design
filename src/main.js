@@ -99,7 +99,7 @@ const hints = {
   room: 'Click two opposite corners (or drag) to draw a rectangular room · Esc cancels · right-drag pans, middle-drag orbits',
   person: 'Click to place the person · drag while placing to set which way they face · E for eye view',
 };
-const eyeHint = 'Eye view · drag to look around · WASD / arrows to walk (Shift = faster) · wheel = FOV · E or Esc to exit';
+const eyeHint = 'Eye view · drag to look around · WASD / arrows to walk (Shift = faster) · Space to jump · wheel = FOV · E or Esc to exit';
 
 const toolButtons = document.querySelectorAll('[data-tool]');
 toolButtons.forEach((b) => b.addEventListener('click', () => tools.setTool(b.dataset.tool)));

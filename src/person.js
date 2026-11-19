@@ -18,6 +18,11 @@ export function createPerson({ scene, camera, controls, canvas, walls }) {
 
   let pitch = 0;
   let eye = false;
+  // Jump (eye view): height above the ground and vertical speed.
+  const GRAVITY = 9.81; // m/s²
+  const JUMP_RATIO = 0.25; // jump peak = 1/4 of eye height
+  let jumpY = 0;
+  let jumpV = 0;
   let saved = null; // orbit camera to restore when leaving eye view
   let look = null; // active drag-to-look
   const keys = new Set();
@@ -91,7 +96,7 @@ export function createPerson({ scene, camera, controls, canvas, walls }) {
   }
 
   function placeCameraAtEyes() {
-    const h = state.height * EYE_RATIO;
+    const h = state.height * EYE_RATIO + jumpY;
     camera.position.set(state.x, h, state.z);
     camera.lookAt(
       state.x + Math.cos(state.yaw) * Math.cos(pitch),
@@ -121,6 +126,7 @@ export function createPerson({ scene, camera, controls, canvas, walls }) {
   function exitEye() {
     if (!eye) return;
     eye = false;
+    jumpY = jumpV = 0;
     keys.clear();
     look = null;
     // Return to orbit, centred on where the person now stands.
@@ -154,8 +160,16 @@ export function createPerson({ scene, camera, controls, canvas, walls }) {
     if (!eye || e.target.matches('input, select, textarea') || e.ctrlKey || e.metaKey) return;
     const k = e.key.toLowerCase();
     if (MOVE_KEYS.includes(k)) { keys.add(k); e.preventDefault(); }
+    if (e.key === ' ') {
+      e.preventDefault(); // don't scroll or "click" a focused button
+      // Only from the ground. Launch speed for a peak of h: v = sqrt(2 g h).
+      if (jumpY === 0 && !e.repeat) jumpV = Math.sqrt(2 * GRAVITY * state.height * EYE_RATIO * JUMP_RATIO);
+    }
   });
-  window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+  window.addEventListener('keyup', (e) => {
+    keys.delete(e.key.toLowerCase());
+    if (eye && e.key === ' ') e.preventDefault(); // buttons activate on Space keyup
+  });
   window.addEventListener('blur', () => { keys.clear(); running = false; });
   let running = false; // hold Shift to walk faster
   window.addEventListener('keydown', (e) => { if (e.key === 'Shift') running = true; });
@@ -198,7 +212,7 @@ export function createPerson({ scene, camera, controls, canvas, walls }) {
     },
     /** Set by main: whether left-drag should look around (vs. being used by a drawing tool). */
     leftDragLooks: () => true,
-    isMoveKey: (k) => eye && MOVE_KEYS.includes(k),
+    isMoveKey: (k) => eye && (MOVE_KEYS.includes(k) || k === ' '),
     onChange(fn) { listeners.add(fn); },
     place(x, z) {
       Object.assign(state, { placed: true, x, z });
@@ -243,6 +257,11 @@ export function createPerson({ scene, camera, controls, canvas, walls }) {
         const speed = state.speed * (running ? 2 : 1) * dt / Math.hypot(f, s);
         const c = Math.cos(state.yaw), sn = Math.sin(state.yaw);
         tryMove((c * f - sn * s) * speed, (sn * f + c * s) * speed);
+      }
+      if (jumpY > 0 || jumpV > 0) {
+        jumpV -= GRAVITY * dt;
+        jumpY = Math.max(0, jumpY + jumpV * dt);
+        if (jumpY === 0) jumpV = 0; // landed
       }
       placeCameraAtEyes();
     },
