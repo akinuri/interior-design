@@ -42,7 +42,10 @@ export function createRenderPipeline({ renderer, scene, camera }) {
     },
     render(activeCamera) {
       renderPass.camera = activeCamera;
-      ao.enabled = aoStrength > 0 && activeCamera.isPerspectiveCamera;
+      // Must be a real boolean: the composer only skips a pass when `enabled === false`,
+      // and OrthographicCamera has no `isPerspectiveCamera` (undefined would keep AO running
+      // with the stale perspective camera, smearing old shading over the parallel view).
+      ao.enabled = aoStrength > 0 && activeCamera.isPerspectiveCamera === true;
       composer.render();
     },
   };
