@@ -633,7 +633,15 @@ if (new URLSearchParams(location.search).has('diag')) setTimeout(startDiagnostic
 const CARDS_KEY = 'interior-design.cards.v2'; // v2: new defaults (only New walls open)
 let cardState = {};
 try { cardState = JSON.parse(localStorage.getItem(CARDS_KEY) ?? '{}'); } catch { /* ignore */ }
-for (const card of document.querySelectorAll('details.card[data-card]')) {
+const allCards = [...document.querySelectorAll('details.card[data-card]')];
+for (const card of allCards) {
+  // Ctrl/Cmd+click a header: open or close every card, following the clicked one.
+  card.querySelector('summary').addEventListener('click', (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    const open = !card.open;
+    for (const c of allCards) c.open = open;
+  });
   if (typeof cardState[card.dataset.card] === 'boolean') card.open = cardState[card.dataset.card];
   card.addEventListener('toggle', () => {
     cardState[card.dataset.card] = card.open;

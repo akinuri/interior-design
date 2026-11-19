@@ -35,5 +35,6 @@ Then open the address it prints. A plain static server such as VS Code's Live Se
 | Home (fit scene) / Top view / Parallel projection / Grid on-off | `H` / `T` / `O` / `G` |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Y` |
 | Save / Open | `Ctrl+S` / `Ctrl+O` (or drop a file onto the page) |
+| Open / close all settings cards | `Ctrl`+click a card header |
 
 ![A small two-room layout with a green accent wall and a person for scale](docs/screenshot.png)
