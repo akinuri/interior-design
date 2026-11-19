@@ -275,8 +275,13 @@ walls.onChange(refreshUI);
 // --- camera views ---
 let topView = false;
 let fly = null;
-function flyTo(position, target) {
-  fly = { p0: camera.position.clone(), p1: position, t0: controls.target.clone(), t1: target, t: 0 };
+/**
+ * Animate the orbit camera; `zoom` (optional) also eases the parallel camera's zoom.
+ * `duration` in seconds; `easeInOut` starts gently too (for longer moves).
+ */
+function flyTo(position, target, zoom, { duration = 0.6, easeInOut = false } = {}) {
+  fly = { p0: camera.position.clone(), p1: position, t0: controls.target.clone(), t1: target, t: 0, duration, easeInOut };
+  if (zoom !== undefined && camera === ortho) Object.assign(fly, { z0: ortho.zoom, z1: zoom });
 }
 function toggleTopView() {
   person.exitEye();
@@ -289,6 +294,44 @@ function toggleTopView() {
   setTip($('view'), topView ? 'Back to 3D view (T)' : 'Toggle top view (T)');
 }
 $('view').addEventListener('click', toggleTopView);
+
+/**
+ * Home: default 3D angle, framing everything in the scene (walls + person).
+ * An empty scene goes back to the starting view of the origin.
+ */
+function homeView() {
+  person.exitEye();
+  topView = false;
+  $('view').classList.remove('active');
+  setTip($('view'), 'Toggle top view (T)');
+
+  const box = new THREE.Box3();
+  for (const mesh of walls.group.children) box.expandByObject(mesh);
+  const p = person.getState();
+  if (p.placed) {
+    box.expandByPoint(new THREE.Vector3(p.x, 0, p.z));
+    box.expandByPoint(new THREE.Vector3(p.x, p.height, p.z));
+  }
+
+  const dir = new THREE.Vector3().fromArray(DEFAULT_CAMERA.position).normalize();
+  const vHalf = THREE.MathUtils.degToRad(persp.fov) / 2;
+  const hHalf = Math.atan(Math.tan(vHalf) * persp.aspect);
+  let target, dist, fitHeight;
+  if (box.isEmpty()) {
+    target = new THREE.Vector3().fromArray(DEFAULT_CAMERA.target);
+    dist = new THREE.Vector3().fromArray(DEFAULT_CAMERA.position).length();
+    fitHeight = visibleHeightAt(dist);
+  } else {
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const r = Math.max(sphere.radius, 2) * 1.15; // a little margin
+    target = sphere.center;
+    dist = r / Math.sin(Math.min(vHalf, hHalf)); // whole sphere fits both ways
+    fitHeight = (2 * r) / Math.min(1, persp.aspect); // parallel view: fit the narrower side
+  }
+  const zoom = camera === ortho ? orthoViewHeight / fitHeight : undefined;
+  flyTo(target.clone().addScaledVector(dir, dist), target.clone(), zoom, { duration: 1.0, easeInOut: true });
+}
+$('home').addEventListener('click', homeView);
 
 // --- parallel (orthographic) projection ---
 // The parallel camera's visible height is matched to what the perspective
@@ -415,6 +458,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'p') tools.setTool('person');
   else if (k === 'e') { if (!person.eye) setParallel(false); person.toggleEye(); }
   else if (k === 't') toggleTopView();
+  else if (k === 'h') homeView();
   else if (k === 'o') setParallel(camera !== ortho);
   else if (k === 'enter') tools.finish();
   else if (k === 'escape') {
@@ -473,10 +517,16 @@ function frame() {
     fly = null;
   } else {
     if (fly) {
-      fly.t = Math.min(1, fly.t + dt / 0.6);
-      const k = 1 - Math.pow(1 - fly.t, 3);
+      fly.t = Math.min(1, fly.t + dt / fly.duration);
+      const k = fly.easeInOut
+        ? (fly.t < 0.5 ? 4 * fly.t ** 3 : 1 - (-2 * fly.t + 2) ** 3 / 2) // ease-in-out cubic
+        : 1 - Math.pow(1 - fly.t, 3); // ease-out cubic
       camera.position.lerpVectors(fly.p0, fly.p1, k);
       controls.target.lerpVectors(fly.t0, fly.t1, k);
+      if (fly.z1 !== undefined) {
+        ortho.zoom = THREE.MathUtils.lerp(fly.z0, fly.z1, k);
+        ortho.updateProjectionMatrix();
+      }
       if (fly.t === 1) fly = null;
     }
     updateTiltLimit();
