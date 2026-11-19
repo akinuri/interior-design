@@ -129,6 +129,9 @@ $('person-remove').addEventListener('click', () => {
   walls.sync(false); // refresh undo button state
 });
 person.onChange(() => {
+  // The Person tool would re-place the person on every click in eye view
+  // (where left-drag should look around), so switch to Select.
+  if (person.eye && tools.tool === 'person') tools.setTool('select');
   $('eye').classList.toggle('active', person.eye);
   $('person-remove').disabled = !person.placed;
   if (document.activeElement !== $('person-height')) $('person-height').value = String(person.height);
