@@ -23,7 +23,8 @@ function placementFor(el) {
   if (el.closest('.tools')) return 'right';
   if (el.closest('.toolbar')) return 'bottom';
   if (el.closest('.fps')) return 'top-end';
-  if (el.closest('.panel:not(.left)')) return 'left';
+  if (el.closest('.panel.selection')) return 'bottom';
+  if (el.closest('.panel')) return 'left';
   return 'top';
 }
 

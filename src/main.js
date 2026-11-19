@@ -644,7 +644,7 @@ for (const card of document.querySelectorAll('details.card[data-card]')) {
 // Scroll shadows on the right panel: show top / bottom shadow when there is
 // more content to scroll to in that direction.
 {
-  const panel = document.querySelector('.panel:not(.left)');
+  const panel = document.querySelector('.panel:not(.selection)');
   const update = () => {
     const max = panel.scrollHeight - panel.clientHeight;
     panel.classList.toggle('more-above', panel.scrollTop > 1);
