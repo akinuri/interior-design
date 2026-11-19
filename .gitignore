@@ -4,3 +4,5 @@ dist
 # diagnostics output (machine-specific)
 sysinfo_*.json
 diagnostics_*.json
+
+design_*.json
