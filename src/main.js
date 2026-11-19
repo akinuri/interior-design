@@ -191,6 +191,16 @@ function takeScreenshot() {
 }
 $('screenshot').addEventListener('click', takeScreenshot);
 
+// --- help popup ---
+function openHelp() {
+  person.exitEye();
+  $('help').showModal();
+}
+$('help-btn').addEventListener('click', openHelp);
+$('help-close').addEventListener('click', () => $('help').close());
+// A click on the dimmed backdrop (outside the box) closes it.
+$('help').addEventListener('click', (e) => { if (e.target === $('help')) $('help').close(); });
+
 $('undo').addEventListener('click', () => tools.undo());
 $('redo').addEventListener('click', () => tools.redo());
 // Clear = reset all scene objects (walls and the person) as one undo step.
@@ -478,6 +488,8 @@ function setScene(data) {
 // --- keyboard ---
 window.addEventListener('keydown', (e) => {
   if (e.target.matches('input, select, textarea')) return;
+  if ($('help').open) return; // help popup handles its own keys (Esc closes it)
+  if (e.key === '?') { e.preventDefault(); openHelp(); return; }
   const k = e.key.toLowerCase();
   const mod = e.ctrlKey || e.metaKey;
   if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? tools.redo() : tools.undo(); return; }

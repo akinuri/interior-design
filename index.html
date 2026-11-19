@@ -51,6 +51,9 @@
         <button id="view" class="icon" title="Toggle top view (T)" aria-label="Top view"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 12h7V4M11 12v8"/></svg></button>
         <button id="parallel" class="icon" title="Parallel (orthographic) projection: no perspective distortion (O)" aria-label="Parallel"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg></button>
       </div>
+      <div class="group">
+        <button id="help-btn" class="icon" title="Help &amp; shortcuts (?)" aria-label="Help"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6"/><circle cx="12" cy="17" r="0.6" fill="currentColor"/></svg></button>
+      </div>
     </header>
 
     <aside class="panel">
@@ -143,6 +146,91 @@
     </aside>
 
     <footer id="hint" class="hint"></footer>
+    <dialog id="help" class="help" aria-labelledby="help-title">
+      <div class="help-header">
+        <span id="help-title">Help &amp; shortcuts</span>
+        <button id="help-close" class="card-close" aria-label="Close help">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="help-body">
+        <section>
+          <h4>Tools (left bar)</h4>
+          <ul>
+          <li><span>Select &amp; edit</span><span class="k"><kbd>V</kbd></span></li>
+          <li><span>Draw walls</span><span class="k"><kbd>W</kbd></span></li>
+          <li><span>Draw a rectangular room</span><span class="k"><kbd>R</kbd></span></li>
+          <li><span>Place the person</span><span class="k"><kbd>P</kbd></span></li>
+          </ul>
+        </section>
+        <section>
+          <h4>Drawing walls</h4>
+          <ul>
+          <li><span>Place points</span><span class="how">click</span></li>
+          <li><span>Lock angle to 45° steps</span><span class="k"><kbd>Shift</kbd></span></li>
+          <li><span>Finish the chain</span><span class="how">double-click, <span class="k"><kbd>Enter</kbd></span> or right-click</span></li>
+          <li><span>Close a loop</span><span class="how">click the start point</span></li>
+          <li><span>Cancel</span><span class="k"><kbd>Esc</kbd></span></li>
+          </ul>
+          <p class="tip">Points snap to the grid and to existing wall ends; the cursor ring turns orange on a wall end. Room tool: click two opposite corners, or drag.</p>
+        </section>
+        <section>
+          <h4>Editing</h4>
+          <ul>
+          <li><span>Select a wall</span><span class="how">click it</span></li>
+          <li><span>Move a corner</span><span class="how">drag a blue handle</span></li>
+          <li><span>Delete selected wall</span><span class="k"><kbd>Del</kbd></span></li>
+          <li><span>Deselect</span><span class="k"><kbd>Esc</kbd></span></li>
+          <li><span>Undo / redo</span><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Z</kbd></span>&nbsp;<span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Y</kbd></span></li>
+          </ul>
+          <p class="tip">Walls joined at a corner move together. Height, thickness and colour are in the Selected wall card.</p>
+        </section>
+        <section>
+          <h4>Camera &amp; views</h4>
+          <ul>
+          <li><span>Orbit</span><span class="how">drag (Select tool) or middle-drag</span></li>
+          <li><span>Pan</span><span class="how">right-drag</span></li>
+          <li><span>Zoom</span><span class="how">mouse wheel</span></li>
+          <li><span>Home: fit the whole scene</span><span class="k"><kbd>H</kbd></span></li>
+          <li><span>Top view</span><span class="k"><kbd>T</kbd></span></li>
+          <li><span>Parallel projection</span><span class="k"><kbd>O</kbd></span></li>
+          <li><span>Grid on / off</span><span class="k"><kbd>G</kbd></span></li>
+          </ul>
+        </section>
+        <section>
+          <h4>Eye view</h4>
+          <ul>
+          <li><span>Enter / exit</span><span class="k"><kbd>E</kbd></span></li>
+          <li><span>Look around</span><span class="how">drag</span></li>
+          <li><span>Walk</span><span class="k"><kbd>W</kbd></span><span class="k"><kbd>A</kbd></span><span class="k"><kbd>S</kbd></span><span class="k"><kbd>D</kbd></span>&nbsp;<span class="how">or arrows</span></li>
+          <li><span>Run</span><span class="k"><kbd>Shift</kbd></span></li>
+          <li><span>Jump</span><span class="k"><kbd>Space</kbd></span></li>
+          <li><span>Field of view</span><span class="how">mouse wheel</span></li>
+          </ul>
+          <p class="tip">Walls block you. Without a placed person, eye view drops one at the centre of the view.</p>
+        </section>
+        <section>
+          <h4>Files</h4>
+          <ul>
+          <li><span>Save design</span><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>S</kbd></span></li>
+          <li><span>Open design</span><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>O</kbd></span>&nbsp;<span class="how">or drop a file</span></li>
+          </ul>
+          <p class="tip">A design file holds the whole scene, including every changed setting: send it to someone and they can open it here. Clear removes all walls and the person (undoable). The camera button saves a clean image of the 3D view.</p>
+        </section>
+        <section>
+          <h4>Panels</h4>
+          <ul>
+          <li><span>Open / close all cards</span><span class="k"><kbd>Ctrl</kbd></span>&nbsp;<span class="how">+ click a header</span></li>
+          <li><span>Reset a slider</span><span class="how">double-click it</span></li>
+          <li><span>This help</span><span class="k"><kbd>?</kbd></span></li>
+          </ul>
+        </section>
+        <section>
+          <h4>Performance</h4>
+          <p class="tip">If it feels slow, lower <b>Corner shading (AO)</b> or turn off <b>Realistic rendering</b> in the Rendering card. Click the FPS readout (bottom right) for a diagnostics report.</p>
+        </section>
+      </div>
+    </dialog>
     <div id="toast" class="toast" hidden></div>
     <div id="fps" class="fps" title="Frames per second · time per frame. Click to run performance diagnostics."></div>
     <div id="diag" class="diag" hidden>
