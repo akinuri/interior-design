@@ -21,13 +21,15 @@
       <div id="measure" class="measure" hidden></div>
     </div>
 
+    <!-- Drawing / editing tools: vertical bar on the left edge. -->
+    <nav class="tools">
+      <button data-tool="select" title="Select & edit (V)">Select</button>
+      <button data-tool="wall" title="Draw walls (W)">Wall</button>
+      <button data-tool="room" title="Draw a rectangular room (R)">Room</button>
+      <button data-tool="person" title="Place a person for scale (P)">Person</button>
+    </nav>
+
     <header class="toolbar">
-      <div class="group">
-        <button data-tool="select" title="Select & edit (V)">Select</button>
-        <button data-tool="wall" title="Draw walls (W)">Wall</button>
-        <button data-tool="room" title="Draw a rectangular room (R)">Room</button>
-        <button data-tool="person" title="Place a person for scale (P)">Person</button>
-      </div>
       <div class="group">
         <button id="file-open" title="Open a design file (Ctrl+O), or drop one onto the page">Open</button>
         <button id="file-save" title="Save the design to a file you can send to someone (Ctrl+S)">Save</button>
