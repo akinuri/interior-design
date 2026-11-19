@@ -399,20 +399,6 @@ button.icon.lang {
 
 .panel .card-body button.danger:disabled { background: #fdf3f3; border-color: rgba(214, 69, 69, 0.4); }
 
-.hint {
-  position: fixed;
-  left: 12px;
-  bottom: 12px;
-  max-width: calc(100% - 24px);
-  padding: 6px 10px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--muted);
-  font-size: 13px;
-  pointer-events: none;
-}
-
 .fps {
   position: fixed;
   right: 12px;

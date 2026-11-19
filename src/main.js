@@ -102,12 +102,8 @@ const $ = (id) => document.getElementById(id);
 
 const toolButtons = document.querySelectorAll('[data-tool]');
 toolButtons.forEach((b) => b.addEventListener('click', () => tools.setTool(b.dataset.tool)));
-function refreshHint() {
-  $('hint').textContent = t(person.eye ? 'hint.eye' : `hint.${tools.tool}`);
-}
 tools.onToolChange((t) => {
   toolButtons.forEach((b) => b.classList.toggle('active', b.dataset.tool === t));
-  refreshHint();
 });
 
 // --- person / eye view ---
@@ -135,7 +131,6 @@ person.onChange(() => {
   $('person-remove').disabled = !person.placed;
   if (document.activeElement !== $('person-height')) $('person-height').value = String(person.height);
   showSpeed();
-  refreshHint();
 });
 $('person-remove').disabled = !person.placed;
 // In eye view the wheel changes FOV (there's nothing to zoom towards).
@@ -691,7 +686,6 @@ $('lang-btn').addEventListener('click', () => {
 });
 onLangChange(() => {
   showLang();
-  refreshHint();
   setTip($('view'), t(topView ? 'top.view.back' : 'top.view.tip'));
 });
 applyTranslations(); // static markup + generated controls, before tooltips take over the titles
