@@ -10,7 +10,7 @@ import tippy from 'tippy.js';
 const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 function render(text) {
-  const m = text.match(/^(.*?)\s*\(((?:Ctrl\+|Shift\+|Alt\+)*[A-Za-z0-9]{1,6})\)\s*(.*)$/s);
+  const m = text.match(/^(.*?)\s*\(((?:Ctrl\+|Shift\+|Alt\+)*(?:[A-Za-z0-9]{1,6}|\?))\)\s*(.*)$/s);
   if (!m) return `<span>${escape(text)}</span>`;
   const [, label, shortcut, rest] = m;
   const keys = shortcut.split('+').map((k) => `<kbd>${escape(k)}</kbd>`).join('<span class="plus">+</span>');

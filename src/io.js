@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 const FORMAT = 'interior-design';
 const VERSION = 2; // v1 files (walls + person only) still open; missing parts get defaults
 
@@ -25,7 +27,7 @@ export function createProjectIO({ getScene, setScene, notify }) {
   function save() {
     const data = { format: FORMAT, version: VERSION, savedAt: new Date().toISOString(), ...getScene() };
     download(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), `design_${stamp()}.json`);
-    notify(`Saved scene (${data.walls.length} walls)`);
+    notify(t('msg.saved', { n: data.walls.length }));
   }
 
   async function load(file) {
@@ -33,16 +35,16 @@ export function createProjectIO({ getScene, setScene, notify }) {
     try {
       data = JSON.parse(await file.text());
     } catch {
-      notify(`Couldn't read ${file.name}: not a valid JSON file`, true);
+      notify(t('msg.notJson', { name: file.name }), true);
       return;
     }
     if (data?.format !== FORMAT || !Array.isArray(data.walls)) {
-      notify(`${file.name} isn't a design file from this app`, true);
+      notify(t('msg.notDesign', { name: file.name }), true);
       return;
     }
-    if (data.version > VERSION) notify('File is from a newer version; some parts may not load', true);
+    if (data.version > VERSION) notify(t('msg.newerVersion'), true);
     const count = setScene(data);
-    notify(`Opened ${file.name} (${count} walls)`);
+    notify(t('msg.opened', { name: file.name, n: count }));
   }
 
   function open() {

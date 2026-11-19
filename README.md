@@ -10,6 +10,7 @@ A simple 3D interior design app that runs in the browser. Draw walls on an infin
 - **Views**: orbit, top view and parallel (orthographic) projection.
 - **Scene and rendering settings**: sky, ground, sun, fog and grid, plus optional realistic rendering (soft shadows, corner shading, sky bounce light).
 - **Save and open**: a design is saved as a `.json` file that someone else can open in this app.
+- **English and Turkish**: the language is picked from your browser or OS settings; switch it with the EN / TR button in the top bar (the choice is remembered).
 
 ## Running it
 

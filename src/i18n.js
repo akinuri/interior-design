@@ -1,0 +1,236 @@
+import { setTip } from './tooltips.js';
+
+/*
+ * UI language: English and Turkish.
+ * - First visit: picked from the browser / OS language list (navigator.languages).
+ * - Switching (language button) applies immediately and is remembered.
+ *
+ * Markup uses data attributes, applied by applyTranslations():
+ *   data-i18n="key"        → textContent
+ *   data-i18n-html="key"   → innerHTML (only for our own strings that contain <kbd>/<b>)
+ *   data-i18n-title="key"  → tooltip text
+ *   data-i18n-aria="key"   → aria-label
+ * Code uses t('key', { param }) for text it builds itself.
+ */
+
+const STORAGE_KEY = 'interior-design.lang';
+export const LANGUAGES = { en: 'English', tr: 'Türkçe' };
+
+const K = (k) => `<span class="k"><kbd>${k}</kbd></span>`;
+
+const STRINGS = {
+  en: {
+    // left tool bar
+    'tool.select': 'Select', 'tool.select.tip': 'Select & edit (V)',
+    'tool.wall': 'Wall', 'tool.wall.tip': 'Draw walls (W)',
+    'tool.room': 'Room', 'tool.room.tip': 'Draw a rectangular room (R)',
+    'tool.person': 'Person', 'tool.person.tip': 'Place a person for scale (P)',
+    // top bar
+    'top.open': 'Open', 'top.open.tip': 'Open a design file (Ctrl+O), or drop one onto the page',
+    'top.save': 'Save', 'top.save.tip': 'Save design to a file (Ctrl+S)',
+    'top.screenshot': 'Screenshot', 'top.screenshot.tip': 'Screenshot: save the 3D view as an image',
+    'top.clear': 'Clear scene', 'top.clear.tip': 'Clear scene: remove all walls and the person',
+    'top.undo': 'Undo', 'top.undo.tip': 'Undo (Ctrl+Z)',
+    'top.redo': 'Redo', 'top.redo.tip': 'Redo (Ctrl+Y)',
+    'top.home': 'Home view', 'top.home.tip': 'Home view: fit the whole scene (H)',
+    'top.eye': 'Eye view', 'top.eye.tip': "See through the person's eyes (E)",
+    'top.view': 'Top view', 'top.view.tip': 'Toggle top view (T)', 'top.view.back': 'Back to 3D view (T)',
+    'top.parallel': 'Parallel', 'top.parallel.tip': 'Parallel (orthographic) projection: no perspective distortion (O)',
+    'top.help': 'Help', 'top.help.tip': 'Help & shortcuts (?)',
+    'top.lang': 'Language', 'top.lang.tip': 'Language: English · click for Türkçe',
+    // cards
+    'card.newWalls': 'New walls', 'card.view': 'View', 'card.grid': 'Grid',
+    'card.scene': 'Scene', 'card.rendering': 'Rendering', 'card.selected': 'Selected wall',
+    'f.height': 'Height (m)', 'f.thickness': 'Thickness (m)', 'f.color': 'Color', 'f.length': 'Length',
+    'f.fov': 'FOV', 'f.personHeight': 'Person height (m)', 'f.walkSpeed': 'Walk speed',
+    'f.walkSpeed.tip': 'Hold Shift in eye view to go 2× faster',
+    'f.show': 'Show', 'f.cellSize': 'Cell size', 'f.majorEvery': 'Major every', 'f.opacity': 'Opacity', 'f.snap': 'Snap',
+    'f.cells2': '2 cells', 'f.cells4': '4 cells', 'f.cells5': '5 cells', 'f.cells10': '10 cells',
+    'f.snapCell': 'Grid cell', 'f.snapHalf': '½ cell', 'f.snapOff': 'Off',
+    'btn.removePerson': 'Remove person', 'btn.resetScene': 'Reset scene', 'btn.resetRendering': 'Reset rendering',
+    'btn.deleteWall': 'Delete wall', 'btn.deselect': 'Deselect', 'btn.deselect.tip': 'Deselect (Esc)',
+    // generated scene / rendering controls
+    's.colors': 'Colors', 's.sky': 'Sky', 's.horizon': 'Horizon / haze', 's.ground': 'Ground', 's.gridLines': 'Grid lines',
+    's.distance': 'Distance & fade', 's.fog': 'Fog', 's.fogDistance': 'Fog distance', 's.gridFade': 'Grid fade',
+    's.lighting': 'Lighting', 's.skyLight': 'Sky light', 's.sunLight': 'Sun light',
+    's.sunDirection': 'Sun direction', 's.sunHeight': 'Sun height',
+    's.mode': 'Mode', 's.realism': 'Realistic rendering',
+    's.light': 'Light', 's.envLight': 'Sky bounce light', 's.exposure': 'Exposure',
+    's.filmLook': 'Film look', 's.film.neutral': 'Neutral', 's.film.agx': 'Soft (AgX)', 's.film.aces': 'Contrasty (ACES)',
+    's.shadows': 'Shadows', 's.sunShadows': 'Sun shadows', 's.shadowSoftness': 'Shadow softness',
+    's.ao': 'Corner shading (AO)', 's.aoReach': 'AO reach',
+    's.dblclickReset': 'Double-click to reset',
+    // hints (bottom bar)
+    'hint.select': 'Click a wall to select · drag blue handles to move corners · Del to delete · Drag to orbit, right-drag to pan, wheel to zoom',
+    'hint.wall': 'Click to place points · Shift locks 45° · click the start point, double-click, Enter or right-click to finish · Esc cancels · right-drag pans, middle-drag orbits',
+    'hint.room': 'Click two opposite corners (or drag) to draw a rectangular room · Esc cancels · right-drag pans, middle-drag orbits',
+    'hint.person': 'Click to place the person · drag while placing to set which way they face · E for eye view',
+    'hint.eye': 'Eye view · drag to look around · WASD / arrows to walk (Shift = faster) · Space to jump · wheel = FOV · E or Esc to exit',
+    // messages
+    'msg.screenshotSaved': 'Screenshot saved ({w}×{h})', 'msg.screenshotFailed': 'Screenshot failed',
+    'msg.saved': 'Saved scene ({n} walls)', 'msg.opened': 'Opened {name} ({n} walls)',
+    'msg.notJson': "Couldn't read {name}: not a valid JSON file",
+    'msg.notDesign': "{name} isn't a design file from this app",
+    'msg.newerVersion': 'File is from a newer version; some parts may not load',
+    'msg.reportCopied': 'Report copied', 'msg.copyFailed': 'Copy failed; use Download instead',
+    'msg.diagFailed': 'Diagnostics failed: {msg}',
+    // FPS + diagnostics panel
+    'fps.tip': 'Frames per second · time per frame. Click to run performance diagnostics.',
+    'diag.title': 'Performance diagnostics', 'diag.download': 'Download report', 'diag.copy': 'Copy report', 'diag.close': 'Close',
+    // help popup
+    'help.title': 'Help & shortcuts', 'help.close': 'Close help', 'key.space': 'Space',
+    'help.tools': 'Tools (left bar)', 'help.selectEdit': 'Select & edit', 'help.drawWalls': 'Draw walls',
+    'help.drawRoom': 'Draw a rectangular room', 'help.placePerson': 'Place the person',
+    'help.drawing': 'Drawing walls', 'help.placePoints': 'Place points', 'help.click': 'click',
+    'help.lock45': 'Lock angle to 45° steps', 'help.finish': 'Finish the chain',
+    'help.finishHow': `double-click, ${K('Enter')} or right-click`,
+    'help.closeLoop': 'Close a loop', 'help.clickStart': 'click the start point', 'help.cancel': 'Cancel',
+    'help.drawingTip': 'Points snap to the grid and to existing wall ends; the cursor ring turns orange on a wall end. Room tool: click two opposite corners, or drag.',
+    'help.editing': 'Editing', 'help.selectWall': 'Select a wall', 'help.clickIt': 'click it',
+    'help.moveCorner': 'Move a corner', 'help.dragHandle': 'drag a blue handle',
+    'help.deleteWall': 'Delete selected wall', 'help.deselect': 'Deselect', 'help.undoRedo': 'Undo / redo',
+    'help.editingTip': 'Walls joined at a corner move together. Height, thickness and colour are in the Selected wall card.',
+    'help.camera': 'Camera & views', 'help.orbit': 'Orbit', 'help.orbitHow': 'drag (Select tool) or middle-drag',
+    'help.pan': 'Pan', 'help.rightDrag': 'right-drag', 'help.zoom': 'Zoom', 'help.wheel': 'mouse wheel',
+    'help.home': 'Home: fit the whole scene', 'help.topView': 'Top view', 'help.parallel': 'Parallel projection',
+    'help.grid': 'Grid on / off',
+    'help.eye': 'Eye view', 'help.enterExit': 'Enter / exit', 'help.look': 'Look around', 'help.drag': 'drag',
+    'help.walk': 'Walk', 'help.orArrows': 'or arrows', 'help.run': 'Run', 'help.jump': 'Jump', 'help.fov': 'Field of view',
+    'help.eyeTip': 'Walls block you. Without a placed person, eye view drops one at the centre of the view.',
+    'help.files': 'Files', 'help.saveDesign': 'Save design', 'help.openDesign': 'Open design', 'help.orDrop': 'or drop a file',
+    'help.filesTip': 'A design file holds the whole scene, including every changed setting: send it to someone and they can open it here. Clear removes all walls and the person (undoable). The camera button saves a clean image of the 3D view.',
+    'help.panels': 'Panels', 'help.toggleAll': 'Open / close all cards', 'help.toggleAllHow': '+ click or middle-click a header',
+    'help.resetSlider': 'Reset a slider', 'help.dblclick': 'double-click it', 'help.thisHelp': 'This help', 'help.language': 'Language',
+    'help.languageHow': 'EN / TR button in the top bar',
+    'help.performance': 'Performance',
+    'help.perfTip': 'If it feels slow, lower <b>Corner shading (AO)</b> or turn off <b>Realistic rendering</b> in the Rendering card. Click the FPS readout (bottom right) for a diagnostics report.',
+  },
+
+  tr: {
+    'tool.select': 'Seç', 'tool.select.tip': 'Seç ve düzenle (V)',
+    'tool.wall': 'Duvar', 'tool.wall.tip': 'Duvar çiz (W)',
+    'tool.room': 'Oda', 'tool.room.tip': 'Dikdörtgen oda çiz (R)',
+    'tool.person': 'Kişi', 'tool.person.tip': 'Ölçek için bir kişi yerleştir (P)',
+    'top.open': 'Aç', 'top.open.tip': 'Tasarım dosyası aç (Ctrl+O) ya da sayfaya sürükle bırak',
+    'top.save': 'Kaydet', 'top.save.tip': 'Tasarımı dosyaya kaydet (Ctrl+S)',
+    'top.screenshot': 'Ekran görüntüsü', 'top.screenshot.tip': 'Ekran görüntüsü: 3B görünümü resim olarak kaydet',
+    'top.clear': 'Sahneyi temizle', 'top.clear.tip': 'Sahneyi temizle: tüm duvarları ve kişiyi kaldır',
+    'top.undo': 'Geri al', 'top.undo.tip': 'Geri al (Ctrl+Z)',
+    'top.redo': 'Yinele', 'top.redo.tip': 'Yinele (Ctrl+Y)',
+    'top.home': 'Başlangıç görünümü', 'top.home.tip': 'Başlangıç görünümü: tüm sahneyi sığdır (H)',
+    'top.eye': 'Göz görünümü', 'top.eye.tip': 'Kişinin gözünden bak (E)',
+    'top.view': 'Üstten görünüm', 'top.view.tip': 'Üstten görünümü aç/kapat (T)', 'top.view.back': '3B görünüme dön (T)',
+    'top.parallel': 'Paralel', 'top.parallel.tip': 'Paralel (ortografik) izdüşüm: perspektif bozulması yok (O)',
+    'top.help': 'Yardım', 'top.help.tip': 'Yardım ve kısayollar (?)',
+    'top.lang': 'Dil', 'top.lang.tip': 'Dil: Türkçe · English için tıkla',
+    'card.newWalls': 'Yeni duvarlar', 'card.view': 'Görünüm', 'card.grid': 'Izgara',
+    'card.scene': 'Sahne', 'card.rendering': 'Render', 'card.selected': 'Seçili duvar',
+    'f.height': 'Yükseklik (m)', 'f.thickness': 'Kalınlık (m)', 'f.color': 'Renk', 'f.length': 'Uzunluk',
+    'f.fov': 'Görüş açısı', 'f.personHeight': 'Kişi boyu (m)', 'f.walkSpeed': 'Yürüme hızı',
+    'f.walkSpeed.tip': 'Göz görünümünde 2 kat hız için Shift tuşunu basılı tut',
+    'f.show': 'Göster', 'f.cellSize': 'Hücre boyutu', 'f.majorEvery': 'Ana çizgi aralığı', 'f.opacity': 'Opaklık', 'f.snap': 'Yakalama',
+    'f.cells2': '2 hücre', 'f.cells4': '4 hücre', 'f.cells5': '5 hücre', 'f.cells10': '10 hücre',
+    'f.snapCell': 'Izgara hücresi', 'f.snapHalf': '½ hücre', 'f.snapOff': 'Kapalı',
+    'btn.removePerson': 'Kişiyi kaldır', 'btn.resetScene': 'Sahneyi sıfırla', 'btn.resetRendering': 'Render ayarlarını sıfırla',
+    'btn.deleteWall': 'Duvarı sil', 'btn.deselect': 'Seçimi kaldır', 'btn.deselect.tip': 'Seçimi kaldır (Esc)',
+    's.colors': 'Renkler', 's.sky': 'Gökyüzü', 's.horizon': 'Ufuk / pus', 's.ground': 'Zemin', 's.gridLines': 'Izgara çizgileri',
+    's.distance': 'Mesafe ve solma', 's.fog': 'Sis', 's.fogDistance': 'Sis mesafesi', 's.gridFade': 'Izgara solma mesafesi',
+    's.lighting': 'Aydınlatma', 's.skyLight': 'Gökyüzü ışığı', 's.sunLight': 'Güneş ışığı',
+    's.sunDirection': 'Güneş yönü', 's.sunHeight': 'Güneş yüksekliği',
+    's.mode': 'Mod', 's.realism': 'Gerçekçi görüntü',
+    's.light': 'Işık', 's.envLight': 'Gökyüzü yansıma ışığı', 's.exposure': 'Pozlama',
+    's.filmLook': 'Film görünümü', 's.film.neutral': 'Nötr', 's.film.agx': 'Yumuşak (AgX)', 's.film.aces': 'Kontrastlı (ACES)',
+    's.shadows': 'Gölgeler', 's.sunShadows': 'Güneş gölgeleri', 's.shadowSoftness': 'Gölge yumuşaklığı',
+    's.ao': 'Köşe gölgelendirme (AO)', 's.aoReach': 'AO erişimi',
+    's.dblclickReset': 'Sıfırlamak için çift tıkla',
+    'hint.select': 'Seçmek için duvara tıkla · köşeleri taşımak için mavi tutamaçları sürükle · silmek için Del · Döndürmek için sürükle, kaydırmak için sağ tuşla sürükle, yakınlaştırmak için tekerlek',
+    'hint.wall': 'Nokta koymak için tıkla · Shift açıyı 45°\'ye kilitler · bitirmek için başlangıç noktasına tıkla, çift tıkla, Enter ya da sağ tıkla · Esc iptal eder · sağ tuşla sürükleme kaydırır, orta tuşla sürükleme döndürür',
+    'hint.room': 'Dikdörtgen oda için iki karşı köşeye tıkla (ya da sürükle) · Esc iptal eder · sağ tuşla sürükleme kaydırır, orta tuşla sürükleme döndürür',
+    'hint.person': 'Kişiyi yerleştirmek için tıkla · yerleştirirken sürükleyerek baktığı yönü ayarla · göz görünümü için E',
+    'hint.eye': 'Göz görünümü · etrafa bakmak için sürükle · yürümek için WASD / oklar (Shift = daha hızlı) · zıplamak için Boşluk · tekerlek = görüş açısı · çıkmak için E ya da Esc',
+    'msg.screenshotSaved': 'Ekran görüntüsü kaydedildi ({w}×{h})', 'msg.screenshotFailed': 'Ekran görüntüsü alınamadı',
+    'msg.saved': 'Sahne kaydedildi ({n} duvar)', 'msg.opened': '{name} açıldı ({n} duvar)',
+    'msg.notJson': '{name} okunamadı: geçerli bir JSON dosyası değil',
+    'msg.notDesign': '{name} bu uygulamaya ait bir tasarım dosyası değil',
+    'msg.newerVersion': 'Dosya daha yeni bir sürümden; bazı kısımlar yüklenmeyebilir',
+    'msg.reportCopied': 'Rapor kopyalandı', 'msg.copyFailed': 'Kopyalanamadı; bunun yerine indir',
+    'msg.diagFailed': 'Tanılama başarısız: {msg}',
+    'fps.tip': 'Saniyedeki kare sayısı · kare başına süre. Performans tanılaması için tıkla.',
+    'diag.title': 'Performans tanılaması', 'diag.download': 'Raporu indir', 'diag.copy': 'Raporu kopyala', 'diag.close': 'Kapat',
+    'help.title': 'Yardım ve kısayollar', 'help.close': 'Yardımı kapat', 'key.space': 'Boşluk',
+    'help.tools': 'Araçlar (sol çubuk)', 'help.selectEdit': 'Seç ve düzenle', 'help.drawWalls': 'Duvar çiz',
+    'help.drawRoom': 'Dikdörtgen oda çiz', 'help.placePerson': 'Kişiyi yerleştir',
+    'help.drawing': 'Duvar çizme', 'help.placePoints': 'Nokta koy', 'help.click': 'tıkla',
+    'help.lock45': 'Açıyı 45° adımlara kilitle', 'help.finish': 'Zinciri bitir',
+    'help.finishHow': `çift tıkla, ${K('Enter')} ya da sağ tıkla`,
+    'help.closeLoop': 'Döngüyü kapat', 'help.clickStart': 'başlangıç noktasına tıkla', 'help.cancel': 'İptal',
+    'help.drawingTip': 'Noktalar ızgaraya ve mevcut duvar uçlarına yapışır; imleç halkası bir duvar ucunda turuncuya döner. Oda aracı: iki karşı köşeye tıkla ya da sürükle.',
+    'help.editing': 'Düzenleme', 'help.selectWall': 'Duvar seç', 'help.clickIt': 'üzerine tıkla',
+    'help.moveCorner': 'Köşe taşı', 'help.dragHandle': 'mavi tutamacı sürükle',
+    'help.deleteWall': 'Seçili duvarı sil', 'help.deselect': 'Seçimi kaldır', 'help.undoRedo': 'Geri al / yinele',
+    'help.editingTip': 'Bir köşede birleşen duvarlar birlikte hareket eder. Yükseklik, kalınlık ve renk Seçili duvar kartındadır.',
+    'help.camera': 'Kamera ve görünümler', 'help.orbit': 'Döndür', 'help.orbitHow': 'sürükle (Seç aracı) ya da orta tuşla sürükle',
+    'help.pan': 'Kaydır', 'help.rightDrag': 'sağ tuşla sürükle', 'help.zoom': 'Yakınlaştır', 'help.wheel': 'fare tekerleği',
+    'help.home': 'Başlangıç: tüm sahneyi sığdır', 'help.topView': 'Üstten görünüm', 'help.parallel': 'Paralel izdüşüm',
+    'help.grid': 'Izgarayı aç / kapat',
+    'help.eye': 'Göz görünümü', 'help.enterExit': 'Gir / çık', 'help.look': 'Etrafa bak', 'help.drag': 'sürükle',
+    'help.walk': 'Yürü', 'help.orArrows': 'ya da oklar', 'help.run': 'Koş', 'help.jump': 'Zıpla', 'help.fov': 'Görüş açısı',
+    'help.eyeTip': 'Duvarlar geçişi engeller. Yerleştirilmiş kişi yoksa göz görünümü, görünümün ortasına bir kişi koyar.',
+    'help.files': 'Dosyalar', 'help.saveDesign': 'Tasarımı kaydet', 'help.openDesign': 'Tasarım aç', 'help.orDrop': 'ya da dosyayı sürükle bırak',
+    'help.filesTip': 'Tasarım dosyası, değiştirilen tüm ayarlar dahil sahnenin tamamını içerir: birine gönder, o da burada açabilsin. Temizle tüm duvarları ve kişiyi kaldırır (geri alınabilir). Kamera düğmesi 3B görünümün temiz bir görüntüsünü kaydeder.',
+    'help.panels': 'Paneller', 'help.toggleAll': 'Tüm kartları aç / kapat', 'help.toggleAllHow': '+ başlığa tıkla ya da orta tıkla',
+    'help.resetSlider': 'Kaydırıcıyı sıfırla', 'help.dblclick': 'üzerine çift tıkla', 'help.thisHelp': 'Bu yardım', 'help.language': 'Dil',
+    'help.languageHow': 'üst çubuktaki EN / TR düğmesi',
+    'help.performance': 'Performans',
+    'help.perfTip': 'Yavaş geliyorsa Render kartında <b>Köşe gölgelendirme (AO)</b> değerini düşür ya da <b>Gerçekçi görüntü</b> seçeneğini kapat. Tanılama raporu için FPS göstergesine (sağ alt) tıkla.',
+  },
+};
+
+function detect() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved in STRINGS) return saved;
+  } catch { /* ignore */ }
+  // Browsers report the user's preferred languages (from the browser / OS settings).
+  for (const tag of navigator.languages?.length ? navigator.languages : [navigator.language]) {
+    const base = String(tag ?? '').toLowerCase().split('-')[0];
+    if (base in STRINGS) return base;
+  }
+  return 'en';
+}
+
+let lang = detect();
+const listeners = new Set();
+
+export const getLang = () => lang;
+
+/** Translate `key`, filling {placeholders} from `params`. Falls back to English, then the key. */
+export function t(key, params) {
+  let s = STRINGS[lang][key] ?? STRINGS.en[key] ?? key;
+  if (params) s = s.replace(/\{(\w+)\}/g, (m, p) => (p in params ? String(params[p]) : m));
+  return s;
+}
+
+/** Switch language, remember the choice, update the page and notify listeners. */
+export function setLang(next) {
+  if (!(next in STRINGS) || next === lang) return;
+  lang = next;
+  try { localStorage.setItem(STORAGE_KEY, next); } catch { /* ignore */ }
+  applyTranslations();
+  listeners.forEach((fn) => fn(lang));
+}
+
+export function onLangChange(fn) { listeners.add(fn); }
+
+/** Apply translations to every marked element under `root`. */
+export function applyTranslations(root = document) {
+  document.documentElement.lang = lang;
+  for (const el of root.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
+  for (const el of root.querySelectorAll('[data-i18n-html]')) el.innerHTML = t(el.dataset.i18nHtml);
+  for (const el of root.querySelectorAll('[data-i18n-aria]')) el.setAttribute('aria-label', t(el.dataset.i18nAria));
+  for (const el of root.querySelectorAll('[data-i18n-title]')) {
+    const text = t(el.dataset.i18nTitle);
+    if (el._tippy) setTip(el, text);
+    else el.setAttribute('title', text);
+  }
+}

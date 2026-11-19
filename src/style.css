@@ -211,6 +211,14 @@ button.icon {
 }
 
 /* Selection panel sits right of the tool bar. */
+/* Language button: shows the current language code (EN / TR) instead of an icon. */
+button.icon.lang {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Selection card: right side, left of the cards column
    (6px gap + 10px scrollbar lane + 6px gap + 210px cards = 232px, then a 16px gap). */
 .panel.selection {

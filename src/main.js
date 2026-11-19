@@ -10,6 +10,7 @@ import { createPerson } from './person.js';
 import { createProjectIO } from './io.js';
 import { installLogCapture, runDiagnostics, summarize } from './diagnostics.js';
 import { initTooltips, setTip } from './tooltips.js';
+import { t, getLang, setLang, LANGUAGES, onLangChange, applyTranslations } from './i18n.js';
 
 // --- scene ---
 const canvas = document.getElementById('c');
@@ -98,18 +99,11 @@ document.addEventListener('contextmenu', (e) => {
   if (!e.target.closest('input[type="text"], input[type="number"], textarea')) e.preventDefault();
 });
 const $ = (id) => document.getElementById(id);
-const hints = {
-  select: 'Click a wall to select · drag blue handles to move corners · Del to delete · Drag to orbit, right-drag to pan, wheel to zoom',
-  wall: 'Click to place points · Shift locks 45° · click the start point, double-click, Enter or right-click to finish · Esc cancels · right-drag pans, middle-drag orbits',
-  room: 'Click two opposite corners (or drag) to draw a rectangular room · Esc cancels · right-drag pans, middle-drag orbits',
-  person: 'Click to place the person · drag while placing to set which way they face · E for eye view',
-};
-const eyeHint = 'Eye view · drag to look around · WASD / arrows to walk (Shift = faster) · Space to jump · wheel = FOV · E or Esc to exit';
 
 const toolButtons = document.querySelectorAll('[data-tool]');
 toolButtons.forEach((b) => b.addEventListener('click', () => tools.setTool(b.dataset.tool)));
 function refreshHint() {
-  $('hint').textContent = person.eye ? eyeHint : hints[tools.tool];
+  $('hint').textContent = t(person.eye ? 'hint.eye' : `hint.${tools.tool}`);
 }
 tools.onToolChange((t) => {
   toolButtons.forEach((b) => b.classList.toggle('active', b.dataset.tool === t));
@@ -174,7 +168,7 @@ function takeScreenshot() {
   pipeline.render(camera);
   // Read the canvas now, in the same task as the render (the drawing buffer isn't preserved).
   canvas.toBlob((blob) => {
-    if (!blob) { notify('Screenshot failed', true); return; }
+    if (!blob) { notify(t('msg.screenshotFailed'), true); return; }
     const a = Object.assign(document.createElement('a'), {
       href: URL.createObjectURL(blob),
       download: `scene_${new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')}.png`,
@@ -183,7 +177,7 @@ function takeScreenshot() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    notify(`Screenshot saved (${canvas.width}×${canvas.height})`);
+    notify(t('msg.screenshotSaved', { w: canvas.width, h: canvas.height }));
   }, 'image/png');
   restoreTools();
   restorePerson();
@@ -335,7 +329,7 @@ function toggleTopView() {
   const offset = topView ? new THREE.Vector3(0, d, 0.001) : new THREE.Vector3(1, 1.1, 1.4).normalize().multiplyScalar(d);
   flyTo(target.clone().add(offset), target);
   $('view').classList.toggle('active', topView);
-  setTip($('view'), topView ? 'Back to 3D view (T)' : 'Toggle top view (T)');
+  setTip($('view'), t(topView ? 'top.view.back' : 'top.view.tip'));
 }
 $('view').addEventListener('click', toggleTopView);
 
@@ -347,7 +341,7 @@ function homeView() {
   person.exitEye();
   topView = false;
   $('view').classList.remove('active');
-  setTip($('view'), 'Toggle top view (T)');
+  setTip($('view'), t('top.view.tip'));
 
   const box = new THREE.Box3();
   for (const mesh of walls.group.children) box.expandByObject(mesh);
@@ -481,7 +475,7 @@ function setScene(data) {
   setParallel(data.view?.parallel === true);
   topView = false;
   $('view').classList.remove('active');
-  setTip($('view'), 'Toggle top view (T)');
+  setTip($('view'), t('top.view.tip'));
   return count;
 }
 
@@ -616,7 +610,7 @@ async function startDiagnostics() {
     out.textContent = summarize(lastReport);
     $('diag-actions').hidden = false;
   } catch (e) {
-    out.textContent = `Diagnostics failed: ${e?.message ?? e}`;
+    out.textContent = t('msg.diagFailed', { msg: e?.message ?? e });
     $('diag-actions').hidden = false;
   } finally {
     diagRunning = false;
@@ -625,8 +619,8 @@ async function startDiagnostics() {
 fpsEl.addEventListener('click', startDiagnostics);
 $('diag-close').addEventListener('click', () => { $('diag').hidden = true; });
 $('diag-copy').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(JSON.stringify(lastReport, null, 2)); notify('Report copied'); }
-  catch { notify('Copy failed; use Download instead', true); }
+  try { await navigator.clipboard.writeText(JSON.stringify(lastReport, null, 2)); notify(t('msg.reportCopied')); }
+  catch { notify(t('msg.copyFailed'), true); }
 });
 $('diag-download').addEventListener('click', () => {
   if (!lastReport) return;
@@ -688,6 +682,20 @@ for (const card of allCards) {
   for (const card of panel.querySelectorAll('.card')) ro.observe(card);
   update();
 }
+
+// --- language ---
+function showLang() { $('lang-btn').textContent = getLang().toUpperCase(); }
+$('lang-btn').addEventListener('click', () => {
+  const codes = Object.keys(LANGUAGES);
+  setLang(codes[(codes.indexOf(getLang()) + 1) % codes.length]); // cycle EN → TR → …
+});
+onLangChange(() => {
+  showLang();
+  refreshHint();
+  setTip($('view'), t(topView ? 'top.view.back' : 'top.view.tip'));
+});
+applyTranslations(); // static markup + generated controls, before tooltips take over the titles
+showLang();
 
 tools.setTool('select');
 refreshUI();

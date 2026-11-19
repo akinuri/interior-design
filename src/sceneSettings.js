@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { t } from './i18n.js';
 
 // v3: earlier versions stored every value (defaults included), which pinned stale defaults.
 const STORAGE_KEY = 'interior-design.scene.v3';
@@ -31,35 +32,36 @@ const TONE_MAPPINGS = {
   aces: THREE.ACESFilmicToneMapping,
 };
 
-// Drives the panel UI: one entry per control. `heading` entries are sub-titles;
+// Drives the panel UI: one entry per control. `heading` / `label` / option texts are
+// translation keys (src/i18n.js). `heading` entries are sub-titles;
 // a heading's `card` (default: the previous one) says which panel card it goes in.
 const FIELDS = [
-  { heading: 'Colors', card: 'scene' },
-  { key: 'skyTop', label: 'Sky', type: 'color' },
-  { key: 'horizon', label: 'Horizon / haze', type: 'color' },
-  { key: 'ground', label: 'Ground', type: 'color' },
-  { key: 'gridColor', label: 'Grid lines', type: 'color' },
-  { heading: 'Distance & fade' },
-  { key: 'fog', label: 'Fog', type: 'check' },
-  { key: 'fogDistance', label: 'Fog distance', type: 'range', min: 20, max: 1000, step: 10, unit: 'm' },
-  { key: 'gridFade', label: 'Grid fade', type: 'range', min: 10, max: 300, step: 5, unit: 'm' },
-  { heading: 'Lighting' },
-  { key: 'skyLight', label: 'Sky light', type: 'range', min: 0, max: 4, step: 0.05 },
-  { key: 'sunLight', label: 'Sun light', type: 'range', min: 0, max: 4, step: 0.05 },
-  { key: 'sunAzimuth', label: 'Sun direction', type: 'range', min: 0, max: 360, step: 1, unit: '°' },
-  { key: 'sunElevation', label: 'Sun height', type: 'range', min: 5, max: 90, step: 1, unit: '°' },
+  { heading: 's.colors', card: 'scene' },
+  { key: 'skyTop', label: 's.sky', type: 'color' },
+  { key: 'horizon', label: 's.horizon', type: 'color' },
+  { key: 'ground', label: 's.ground', type: 'color' },
+  { key: 'gridColor', label: 's.gridLines', type: 'color' },
+  { heading: 's.distance' },
+  { key: 'fog', label: 's.fog', type: 'check' },
+  { key: 'fogDistance', label: 's.fogDistance', type: 'range', min: 20, max: 1000, step: 10, unit: 'm' },
+  { key: 'gridFade', label: 's.gridFade', type: 'range', min: 10, max: 300, step: 5, unit: 'm' },
+  { heading: 's.lighting' },
+  { key: 'skyLight', label: 's.skyLight', type: 'range', min: 0, max: 4, step: 0.05 },
+  { key: 'sunLight', label: 's.sunLight', type: 'range', min: 0, max: 4, step: 0.05 },
+  { key: 'sunAzimuth', label: 's.sunDirection', type: 'range', min: 0, max: 360, step: 1, unit: '°' },
+  { key: 'sunElevation', label: 's.sunHeight', type: 'range', min: 5, max: 90, step: 1, unit: '°' },
 
-  { heading: 'Mode', card: 'render' },
-  { key: 'realism', label: 'Realistic rendering', type: 'check' },
-  { heading: 'Light' },
-  { key: 'envLight', label: 'Sky bounce light', type: 'range', min: 0, max: 2, step: 0.05, realism: true },
-  { key: 'exposure', label: 'Exposure', type: 'range', min: 0.3, max: 2, step: 0.05 },
-  { key: 'toneMapping', label: 'Film look', type: 'select', options: [['neutral', 'Neutral'], ['agx', 'Soft (AgX)'], ['aces', 'Contrasty (ACES)']] },
-  { heading: 'Shadows' },
-  { key: 'shadows', label: 'Sun shadows', type: 'check' },
-  { key: 'shadowSoftness', label: 'Shadow softness', type: 'range', min: 0, max: 10, step: 0.5, realism: true },
-  { key: 'ambientOcclusion', label: 'Corner shading (AO)', type: 'range', min: 0, max: 1, step: 0.05, realism: true },
-  { key: 'aoRadius', label: 'AO reach', type: 'range', min: 0.1, max: 2, step: 0.05, unit: 'm', realism: true },
+  { heading: 's.mode', card: 'render' },
+  { key: 'realism', label: 's.realism', type: 'check' },
+  { heading: 's.light' },
+  { key: 'envLight', label: 's.envLight', type: 'range', min: 0, max: 2, step: 0.05, realism: true },
+  { key: 'exposure', label: 's.exposure', type: 'range', min: 0.3, max: 2, step: 0.05 },
+  { key: 'toneMapping', label: 's.filmLook', type: 'select', options: [['neutral', 's.film.neutral'], ['agx', 's.film.agx'], ['aces', 's.film.aces']] },
+  { heading: 's.shadows' },
+  { key: 'shadows', label: 's.sunShadows', type: 'check' },
+  { key: 'shadowSoftness', label: 's.shadowSoftness', type: 'range', min: 0, max: 10, step: 0.5, realism: true },
+  { key: 'ambientOcclusion', label: 's.ao', type: 'range', min: 0, max: 1, step: 0.05, realism: true },
+  { key: 'aoRadius', label: 's.aoReach', type: 'range', min: 0.1, max: 2, step: 0.05, unit: 'm', realism: true },
 ];
 
 /**
@@ -120,17 +122,25 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
     if (f.heading) {
       card = f.card ?? card;
       const h = document.createElement('h4');
-      h.textContent = f.heading;
+      h.dataset.i18n = f.heading;
+      h.textContent = t(f.heading);
       containers[card].append(h);
       continue;
     }
     const container = containers[card];
     cardKeys[card].push(f.key);
     const label = document.createElement('label');
-    label.textContent = f.label;
+    const text = document.createElement('span');
+    text.dataset.i18n = f.label;
+    text.textContent = t(f.label);
+    label.append(text);
     const input = document.createElement(f.type === 'select' ? 'select' : 'input');
     if (f.type === 'select') {
-      for (const [value, text] of f.options) input.append(new Option(text, value));
+      for (const [value, key] of f.options) {
+        const option = new Option(t(key), value);
+        option.dataset.i18n = key;
+        input.append(option);
+      }
     } else {
       input.type = f.type === 'check' ? 'checkbox' : f.type;
     }
@@ -149,7 +159,8 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
       outputs[f.key] = out;
       container.append(label, input);
       input.addEventListener('dblclick', () => { values[f.key] = DEFAULTS[f.key]; sync(); apply(); });
-      input.title = 'Double-click to reset';
+      input.dataset.i18nTitle = 's.dblclickReset';
+      input.title = t('s.dblclickReset');
     } else {
       label.append(input);
       container.append(label);
