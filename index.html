@@ -115,7 +115,16 @@
 
     <footer id="hint" class="hint"></footer>
     <div id="toast" class="toast" hidden></div>
-    <div id="fps" class="fps" title="Frames per second · time per frame"></div>
+    <div id="fps" class="fps" title="Frames per second · time per frame. Click to run performance diagnostics."></div>
+    <div id="diag" class="diag" hidden>
+      <h3>Performance diagnostics</h3>
+      <pre id="diag-output"></pre>
+      <div id="diag-actions" class="diag-actions" hidden>
+        <button id="diag-download">Download report</button>
+        <button id="diag-copy">Copy report</button>
+        <button id="diag-close">Close</button>
+      </div>
+    </div>
 
     <script type="module" src="./src/main.js"></script>
   </body>

@@ -8,9 +8,11 @@ import { createSceneSettings, pickValid, changedFrom } from './sceneSettings.js'
 import { createTools } from './tools.js';
 import { createPerson } from './person.js';
 import { createProjectIO } from './io.js';
+import { installLogCapture, runDiagnostics, summarize } from './diagnostics.js';
 
 // --- scene ---
 const canvas = document.getElementById('c');
+installLogCapture(canvas); // before anything can warn, for the diagnostics report
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
@@ -445,7 +447,7 @@ function updateFps(dt) {
 }
 
 const clock = new THREE.Clock();
-renderer.setAnimationLoop(() => {
+function frame() {
   const dt = clock.getDelta();
   updateFps(dt);
   if (person.eye) {
@@ -468,7 +470,61 @@ renderer.setAnimationLoop(() => {
   ground.update(camera);
   updateMeasureLabel();
   pipeline.render(camera);
+}
+renderer.setAnimationLoop(frame);
+
+// --- diagnostics: click the FPS readout, or open the page with ?diag ---
+let diagRunning = false;
+let lastReport = null;
+async function startDiagnostics() {
+  if (diagRunning) return;
+  diagRunning = true;
+  const panel = $('diag');
+  panel.hidden = false;
+  $('diag-actions').hidden = true;
+  const out = $('diag-output');
+  try {
+    lastReport = await runDiagnostics({
+      renderer, scene, canvas, sun, pipeline,
+      getCamera: () => camera,
+      pauseLoop: () => renderer.setAnimationLoop(null),
+      resumeLoop: () => { clock.getDelta(); renderer.setAnimationLoop(frame); },
+      getAppState: () => ({
+        walls: walls.list.length,
+        cameraMode: person.eye ? 'eye' : camera === ortho ? 'parallel' : 'perspective',
+        fov: persp.fov,
+        grid: { ...grid },
+        sceneSettingsChanged: environment.getChanged() ?? {},
+      }),
+      onProgress: (text) => { out.textContent = text; },
+    });
+    out.textContent = summarize(lastReport);
+    $('diag-actions').hidden = false;
+  } catch (e) {
+    out.textContent = `Diagnostics failed: ${e?.message ?? e}`;
+    $('diag-actions').hidden = false;
+  } finally {
+    diagRunning = false;
+  }
+}
+fpsEl.addEventListener('click', startDiagnostics);
+$('diag-close').addEventListener('click', () => { $('diag').hidden = true; });
+$('diag-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(JSON.stringify(lastReport, null, 2)); notify('Report copied'); }
+  catch { notify('Copy failed; use Download instead', true); }
 });
+$('diag-download').addEventListener('click', () => {
+  if (!lastReport) return;
+  const gpu = (lastReport.webgl.unmaskedRenderer ?? 'gpu').replace(/^ANGLE \(/, '').split(/[,(]/)[0].trim().replace(/[^a-z0-9]+/gi, '-').slice(0, 40);
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([JSON.stringify(lastReport, null, 2)], { type: 'application/json' })),
+    download: `diagnostics_${gpu}_${lastReport.takenAt.slice(0, 16).replace(/[T:]/g, '-')}.json`,
+  });
+  document.body.append(a);
+  a.click();
+  a.remove();
+});
+if (new URLSearchParams(location.search).has('diag')) setTimeout(startDiagnostics, 1500);
 
 tools.setTool('select');
 refreshUI();

@@ -244,6 +244,47 @@ kbd {
 }
 
 .fps.slow { color: var(--danger); }
+.fps { pointer-events: auto; cursor: pointer; }
+.fps:hover { color: var(--text); }
+
+.diag {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(760px, calc(100% - 32px));
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 30px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+}
+
+.diag h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.diag pre {
+  margin: 0;
+  font: 12px/1.5 ui-monospace, monospace;
+  white-space: pre-wrap;
+}
+
+.diag-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+  justify-content: flex-end;
+}
+
+.diag-actions button { border-color: var(--border); }
 
 .toast {
   position: fixed;

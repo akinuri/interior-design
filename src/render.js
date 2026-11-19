@@ -35,6 +35,7 @@ export function createRenderPipeline({ renderer, scene, camera }) {
       aoStrength = strength;
       ao.blendIntensity = strength;
     },
+    getAmbientOcclusion: () => aoStrength,
     /** How far (m) the darkening reaches out from creases. */
     setAmbientOcclusionRadius(m) {
       ao.updateGtaoMaterial({ radius: m });
