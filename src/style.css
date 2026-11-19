@@ -312,6 +312,45 @@ button.icon {
 
 .diag-actions button { border-color: var(--border); }
 
+/* Tooltips (Tippy.js "app" theme) */
+.tippy-box[data-theme~='app'] {
+  background: var(--text);
+  color: #fff;
+  font-size: 12.5px;
+  line-height: 1.35;
+  border-radius: 7px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+.tippy-box[data-theme~='app'] .tippy-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 9px;
+}
+
+.tippy-box[data-theme~='app'] .keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tippy-box[data-theme~='app'] kbd {
+  margin: 0;
+  min-width: 18px;
+  padding: 1px 5px;
+  text-align: center;
+  font: 11px ui-monospace, monospace;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+}
+
+.tippy-box[data-theme~='app'] .plus { opacity: 0.6; font-size: 11px; }
+
+.tippy-box[data-theme~='app'] > .tippy-arrow { color: var(--text); }
+
 .toast {
   position: fixed;
   left: 50%;

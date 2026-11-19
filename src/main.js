@@ -9,6 +9,7 @@ import { createTools } from './tools.js';
 import { createPerson } from './person.js';
 import { createProjectIO } from './io.js';
 import { installLogCapture, runDiagnostics, summarize } from './diagnostics.js';
+import { initTooltips, setTip } from './tooltips.js';
 
 // --- scene ---
 const canvas = document.getElementById('c');
@@ -269,7 +270,7 @@ function toggleTopView() {
   const offset = topView ? new THREE.Vector3(0, d, 0.001) : new THREE.Vector3(1, 1.1, 1.4).normalize().multiplyScalar(d);
   flyTo(target.clone().add(offset), target);
   $('view').classList.toggle('active', topView);
-  $('view').title = topView ? 'Back to 3D view (T)' : 'Toggle top view (T)';
+  setTip($('view'), topView ? 'Back to 3D view (T)' : 'Toggle top view (T)');
 }
 $('view').addEventListener('click', toggleTopView);
 
@@ -377,7 +378,7 @@ function setScene(data) {
   setParallel(data.view?.parallel === true);
   topView = false;
   $('view').classList.remove('active');
-  $('view').title = 'Toggle top view (T)';
+  setTip($('view'), 'Toggle top view (T)');
   return count;
 }
 
@@ -530,3 +531,4 @@ if (new URLSearchParams(location.search).has('diag')) setTimeout(startDiagnostic
 
 tools.setTool('select');
 refreshUI();
+initTooltips(); // after all UI (including generated settings controls) exists
