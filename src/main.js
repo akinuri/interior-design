@@ -157,6 +157,32 @@ const io = createProjectIO({ getScene, setScene, notify });
 $('file-open').addEventListener('click', () => { tools.cancel(); io.open(); });
 $('file-save').addEventListener('click', () => io.save());
 
+// Screenshot: render one clean frame (no editing helpers) and save it as PNG.
+function takeScreenshot() {
+  const selected = walls.selectedId;
+  if (selected != null) walls.select(null); // no selection outline
+  const restoreTools = tools.hideHelpers();
+  const restorePerson = person.hideHelpers();
+  pipeline.render(camera);
+  // Read the canvas now, in the same task as the render (the drawing buffer isn't preserved).
+  canvas.toBlob((blob) => {
+    if (!blob) { notify('Screenshot failed', true); return; }
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(blob),
+      download: `scene_${new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')}.png`,
+    });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    notify(`Screenshot saved (${canvas.width}×${canvas.height})`);
+  }, 'image/png');
+  restoreTools();
+  restorePerson();
+  if (selected != null) walls.select(selected);
+}
+$('screenshot').addEventListener('click', takeScreenshot);
+
 $('undo').addEventListener('click', () => tools.undo());
 $('redo').addEventListener('click', () => tools.redo());
 // Clear = reset all scene objects (walls and the person) as one undo step.

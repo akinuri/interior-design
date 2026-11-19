@@ -164,6 +164,12 @@ export function createPerson({ scene, camera, controls, canvas, walls }) {
   syncFigure();
 
   const api = {
+    /** Hide the floor view-wedge (e.g. for screenshots); returns a restore function. */
+    hideHelpers() {
+      const was = wedge.visible;
+      wedge.visible = false;
+      return () => { wedge.visible = was; };
+    },
     /** Snapshot for saving to a file. */
     getState() { return { ...state }; },
     defaults: DEFAULTS,

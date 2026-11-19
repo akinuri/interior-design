@@ -311,6 +311,18 @@ export function createTools({ getCamera, canvas, controls, scene, walls, setting
   }
 
   return {
+    /** Hide editing helpers (previews, cursor ring, handles); returns a function that restores them. */
+    hideHelpers() {
+      const objects = [...ghosts, marker, ...handles];
+      const was = objects.map((o) => o.visible);
+      const labelPos = label.pos;
+      objects.forEach((o) => (o.visible = false));
+      label.pos = null;
+      return () => {
+        objects.forEach((o, i) => (o.visible = was[i]));
+        label.pos = labelPos;
+      };
+    },
     label,
     setTool,
     get tool() { return tool; },
