@@ -240,8 +240,10 @@ export function createTools({ getCamera, canvas, controls, scene, walls, setting
     if (tool === 'select') {
       tryStartDrag(e);
     } else if (tool === 'person' && cursor) {
+      walls.checkpoint({ extra: true }); // placing / moving the person is an undo step
       person.place(cursor.x, cursor.z);
       aiming = { x: cursor.x, z: cursor.z };
+      walls.sync(false); // refresh undo button state
     } else if (tool === 'room' && !roomStart && cursor) {
       roomStart = { x: cursor.x, z: cursor.z };
       roomStartedThisPress = true;

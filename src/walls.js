@@ -126,24 +126,38 @@ export class Walls {
   endpoints() { return this.list.flatMap((w) => [w.a, w.b]); }
 
   // --- history ---
-  checkpoint() {
-    this.undoStack.push(JSON.stringify(this.list));
+  // Each step stores the walls plus, via `extraState`, other scene objects
+  // (the person). Extra state is only restored for steps that changed it
+  // (`{ extra: true }`), so e.g. walking in eye view isn't undone by undoing
+  // an unrelated wall edit.
+  extraState = { get: () => null, set: () => {} };
+
+  snapshot(extra) {
+    return { walls: JSON.stringify(this.list), extraValue: this.extraState.get(), extra };
+  }
+  checkpoint({ extra = false } = {}) {
+    this.undoStack.push(this.snapshot(extra));
     if (this.undoStack.length > 200) this.undoStack.shift();
     this.redoStack.length = 0;
   }
   dropCheckpoint() { this.undoStack.pop(); }
+  restore(step) {
+    this.list = JSON.parse(step.walls);
+    if (step.extra) this.extraState.set(step.extraValue);
+    this.sync();
+  }
   undo() {
     if (!this.undoStack.length) return false;
-    this.redoStack.push(JSON.stringify(this.list));
-    this.list = JSON.parse(this.undoStack.pop());
-    this.sync();
+    const step = this.undoStack.pop();
+    this.redoStack.push(this.snapshot(step.extra));
+    this.restore(step);
     return true;
   }
   redo() {
     if (!this.redoStack.length) return false;
-    this.undoStack.push(JSON.stringify(this.list));
-    this.list = JSON.parse(this.redoStack.pop());
-    this.sync();
+    const step = this.redoStack.pop();
+    this.undoStack.push(this.snapshot(step.extra));
+    this.restore(step);
     return true;
   }
 
@@ -173,9 +187,9 @@ export class Walls {
     this.sync();
   }
 
-  clear() {
-    if (!this.list.length) return;
-    this.checkpoint();
+  /** Remove every wall; with `extra`, the step also records other scene objects (see clearScene in main). */
+  clear({ extra = false } = {}) {
+    this.checkpoint({ extra });
     this.list = [];
     this.sync();
   }

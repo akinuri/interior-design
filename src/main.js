@@ -122,7 +122,12 @@ showSpeed();
 $('person-speed').addEventListener('input', (e) => { person.setSpeed(parseFloat(e.target.value)); showSpeed(); });
 $('person-speed').addEventListener('dblclick', () => { person.setSpeed(1.4); showSpeed(); });
 $('eye').addEventListener('click', () => person.toggleEye());
-$('person-remove').addEventListener('click', () => person.remove());
+$('person-remove').addEventListener('click', () => {
+  if (!person.placed) return;
+  walls.checkpoint({ extra: true });
+  person.remove();
+  walls.sync(false); // refresh undo button state
+});
 person.onChange(() => {
   $('eye').classList.toggle('active', person.eye);
   $('person-remove').disabled = !person.placed;
@@ -154,7 +159,17 @@ $('file-save').addEventListener('click', () => io.save());
 
 $('undo').addEventListener('click', () => tools.undo());
 $('redo').addEventListener('click', () => tools.redo());
-$('clear').addEventListener('click', () => { tools.cancel(); walls.clear(); });
+// Clear = reset all scene objects (walls and the person) as one undo step.
+function clearScene() {
+  tools.cancel();
+  if (!walls.list.length && !person.placed) return;
+  person.exitEye();
+  walls.clear({ extra: true });
+  person.remove();
+}
+$('clear').addEventListener('click', clearScene);
+// Undo / redo of person edits: walls history carries the person's state.
+walls.extraState = { get: () => person.getState(), set: (s) => person.setState(s) };
 
 const num = (input, fallback) => {
   const v = parseFloat(input.value);
