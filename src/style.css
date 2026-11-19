@@ -1,4 +1,9 @@
 :root {
+  interpolate-size: allow-keywords; /* lets card bodies animate to height: auto */
+  --card-bg: rgba(250, 249, 247, 0.72);
+  --card-header: rgba(43, 45, 49, 0.06);
+  --card-header-hover: rgba(43, 45, 49, 0.1);
+  --card-divider: rgba(43, 45, 49, 0.1);
   --bg: #eceae6;
   --panel: rgba(255, 255, 255, 0.92);
   --border: #d9d6d0;
@@ -98,10 +103,82 @@ kbd {
   width: 210px;
   max-height: calc(100vh - 60px); /* leave room for the FPS readout below */
   overflow-y: auto;
-  scrollbar-width: thin;
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* Right panel: the scrollbar gets its own lane (reserved even when not
+   scrolling, so cards never shift), with a gap on both sides of it:
+   window edge | 6px | scrollbar | 6px | cards. */
+.panel:not(.left) {
+  right: 6px;
+  width: auto;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+}
+
+.panel:not(.left) > .card { width: 210px; }
+
+/* Scroll shadows: zero-height strips pinned to the panel's top/bottom edge
+   (sticky), shown only when there is more content in that direction. */
+.panel .scroll-shadow {
+  position: sticky;
+  z-index: 2;
+  height: 0;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.panel .scroll-shadow.top { top: 0; margin-bottom: -10px; /* cancel the flex gap */ }
+.panel .scroll-shadow.bottom { bottom: 0; margin-top: -10px; }
+
+.panel .scroll-shadow::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 18px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.panel .scroll-shadow.top::after {
+  top: 0;
+  background: linear-gradient(rgba(20, 22, 26, 0.22), transparent);
+}
+
+.panel .scroll-shadow.bottom::after {
+  bottom: 0;
+  background: linear-gradient(transparent, rgba(20, 22, 26, 0.22));
+}
+
+.panel.more-above .scroll-shadow.top::after,
+.panel.more-below .scroll-shadow.bottom::after { opacity: 1; }
+
+/* Scrollbar: slim rounded thumb, no track. Faint until the panel is hovered.
+   (Chromium ignores these if `scrollbar-width`/`scrollbar-color` are set,
+   so the standard properties are only used where these aren't supported.) */
+.panel::-webkit-scrollbar { width: 10px; }
+.panel::-webkit-scrollbar-track { background: transparent; }
+
+.panel::-webkit-scrollbar-thumb {
+  background: rgba(43, 45, 49, 0.18);
+  background-clip: padding-box;
+  border: 2px solid transparent; /* inset the thumb inside its 10px lane */
+  border-radius: 10px;
+  min-height: 40px;
+}
+
+.panel:hover::-webkit-scrollbar-thumb { background-color: rgba(43, 45, 49, 0.32); }
+.panel::-webkit-scrollbar-thumb:hover { background-color: rgba(43, 45, 49, 0.45); }
+.panel::-webkit-scrollbar-thumb:active { background-color: rgba(43, 45, 49, 0.55); }
+
+@supports not selector(::-webkit-scrollbar) {
+  .panel {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(43, 45, 49, 0.3) transparent;
+  }
 }
 
 /* Vertical tool bar on the left edge. Centred, the gap above it would be
@@ -137,40 +214,86 @@ button.icon {
   left: calc(12px + 48px + 8px); /* tool bar: 36px buttons + 2×5px padding + 2px border */
 }
 
-.panel section,
-.panel details,
-.panel .fields {
-  background: var(--panel);
-  border: 1px solid var(--border);
+.panel .card[hidden] { display: none; }
+
+/* --- Right-side cards: translucent, tinted header, collapsible body --- */
+.panel .card {
+  border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: 10px;
-  padding: 10px 12px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  background: var(--card-bg);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  backdrop-filter: blur(12px) saturate(1.3);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1), inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.panel .card > summary,
+.panel .card > .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  background: var(--card-header);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.panel .card > summary::-webkit-details-marker { display: none; }
+.panel .card > .card-header { cursor: default; border-bottom: 1px solid var(--card-divider); padding-right: 6px; }
+
+/* Small × in a card header (selection card: deselect). */
+.card-close {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  color: var(--muted);
+}
+
+.card-close:hover { color: var(--text); background: var(--card-header-hover); }
+.panel .card > summary:hover { background: var(--card-header-hover); }
+
+/* Chevron: points right when closed, down when open. */
+.panel .card > summary::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  margin-right: 2px;
+  border-right: 1.6px solid var(--muted);
+  border-bottom: 1.6px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 0.2s ease;
+}
+
+.panel .card[open] > summary::after { transform: rotate(45deg); }
+.panel .card[open] > summary { border-bottom: 1px solid var(--card-divider); }
+
+.panel .card-body,
+.panel .fields {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.panel section[hidden] { display: none; }
+.panel .card-body { padding: 10px 12px 12px; }
 
-.panel details:not([open]) { gap: 0; }
-
-.panel .fields {
-  /* plain stacking inside the card, no second border */
-  background: none;
-  border: none;
-  box-shadow: none;
-  padding: 0;
+/* Smooth open/close where supported (Chromium 131+); instant elsewhere. */
+.panel .card::details-content {
+  block-size: 0;
+  overflow: clip;
+  transition: block-size 0.2s ease, content-visibility 0.2s allow-discrete;
 }
 
-.panel summary {
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: bold;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  user-select: none;
-}
+.panel .card[open]::details-content { block-size: auto; }
 
 .panel h4 {
   margin: 4px 0 -2px;
@@ -197,14 +320,6 @@ button.icon {
   margin: -4px 0 0;
 }
 
-.panel h3 {
-  margin: 0;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-}
-
 .panel label {
   display: flex;
   align-items: center;
@@ -226,7 +341,7 @@ button.icon {
   accent-color: var(--accent);
 }
 
-.panel > section > input[type="range"] {
+.panel .card-body > input[type="range"] {
   width: 100%;
   margin: -4px 0 0;
 }
@@ -238,10 +353,38 @@ button.icon {
   accent-color: var(--accent);
 }
 
-.panel button.danger {
-  color: var(--danger);
-  border-color: var(--border);
+/* Buttons inside cards: solid so they read as buttons on the translucent cards. */
+.panel .card-body button {
+  background: #fff;
+  border: 1px solid #d3cfc8;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.07);
+  color: var(--text);
+  font-weight: 500;
+  transition: background 0.12s, border-color 0.12s;
 }
+
+.panel .card-body button:hover { background: #f3f1ec; border-color: #bfbab1; }
+.panel .card-body button:active { background: #e9e6e0; box-shadow: none; }
+
+.panel .card-body button.danger {
+  color: var(--danger);
+  background: #fdf3f3;
+  border-color: rgba(214, 69, 69, 0.4);
+}
+
+.panel .card-body button.danger:hover { background: #fbe4e4; border-color: rgba(214, 69, 69, 0.6); }
+.panel .card-body button.danger:active { background: #f7d3d3; }
+
+.panel .card-body button:disabled,
+.panel .card-body button:disabled:hover {
+  opacity: 0.45;
+  cursor: default;
+  background: #fff;
+  border-color: #d3cfc8;
+  box-shadow: none;
+}
+
+.panel .card-body button.danger:disabled { background: #fdf3f3; border-color: rgba(214, 69, 69, 0.4); }
 
 .hint {
   position: fixed;

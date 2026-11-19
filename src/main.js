@@ -222,6 +222,7 @@ $('sel-thickness').addEventListener('change', (e) => {
   if (w) walls.update(w.id, { thickness: num(e.target, w.thickness) });
 });
 $('sel-delete').addEventListener('click', () => walls.selected && walls.remove(walls.selectedId));
+$('sel-close').addEventListener('click', () => walls.select(null));
 
 $('set-color').addEventListener('input', (e) => (settings.color = e.target.value));
 
@@ -528,6 +529,35 @@ $('diag-download').addEventListener('click', () => {
   a.remove();
 });
 if (new URLSearchParams(location.search).has('diag')) setTimeout(startDiagnostics, 1500);
+
+// Remember which right-side cards are open (per browser).
+const CARDS_KEY = 'interior-design.cards.v1';
+let cardState = {};
+try { cardState = JSON.parse(localStorage.getItem(CARDS_KEY) ?? '{}'); } catch { /* ignore */ }
+for (const card of document.querySelectorAll('details.card[data-card]')) {
+  if (typeof cardState[card.dataset.card] === 'boolean') card.open = cardState[card.dataset.card];
+  card.addEventListener('toggle', () => {
+    cardState[card.dataset.card] = card.open;
+    try { localStorage.setItem(CARDS_KEY, JSON.stringify(cardState)); } catch { /* ignore */ }
+  });
+}
+
+// Scroll shadows on the right panel: show top / bottom shadow when there is
+// more content to scroll to in that direction.
+{
+  const panel = document.querySelector('.panel:not(.left)');
+  const update = () => {
+    const max = panel.scrollHeight - panel.clientHeight;
+    panel.classList.toggle('more-above', panel.scrollTop > 1);
+    panel.classList.toggle('more-below', panel.scrollTop < max - 1);
+  };
+  panel.addEventListener('scroll', update, { passive: true });
+  // Content height changes when cards open/close (animated) or the window resizes.
+  const ro = new ResizeObserver(update);
+  ro.observe(panel);
+  for (const card of panel.querySelectorAll('.card')) ro.observe(card);
+  update();
+}
 
 tools.setTool('select');
 refreshUI();
