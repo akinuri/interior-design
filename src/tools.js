@@ -288,7 +288,6 @@ export function createTools({ getCamera, canvas, controls, scene, walls, setting
   });
 
   canvas.addEventListener('dblclick', () => { if (tool === 'wall') finish(); });
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   const refreshFromLastPointer = () => {
     if (lastPointer && lastPointer.target === canvas) updateCursor(lastPointer);

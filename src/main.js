@@ -92,6 +92,11 @@ const tools = createTools({ getCamera: () => camera, canvas, controls, scene, wa
 person.leftDragLooks = () => tools.tool === 'select';
 
 // --- UI ---
+// No browser context menu anywhere (right-click pans / finishes drawing),
+// except in text and number fields, where copy / paste is still useful.
+document.addEventListener('contextmenu', (e) => {
+  if (!e.target.closest('input[type="text"], input[type="number"], textarea')) e.preventDefault();
+});
 const $ = (id) => document.getElementById(id);
 const hints = {
   select: 'Click a wall to select · drag blue handles to move corners · Del to delete · Drag to orbit, right-drag to pan, wheel to zoom',
