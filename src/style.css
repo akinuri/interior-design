@@ -37,11 +37,13 @@ html, body {
   outline: none;
 }
 
+/* Top bar: like the left tool bar, it sits halfway into its centred gap:
+   left = (viewport - bar) / 4. */
 .toolbar {
   position: fixed;
   top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 25%;
+  transform: translateX(-25%);
   /* stay between the side panels (210px + 12px margin + gap each side); wrap if needed */
   max-width: calc(100% - 2 * 240px);
   width: max-content;
@@ -212,6 +214,7 @@ button.icon {
 .panel.left {
   right: auto;
   left: calc(12px + 48px + 8px); /* tool bar: 36px buttons + 2×5px padding + 2px border */
+  top: calc(12px + 48px + 8px);  /* below the top bar, which now reaches over this corner */
 }
 
 .panel .card[hidden] { display: none; }
