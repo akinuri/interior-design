@@ -596,7 +596,7 @@ $('diag-download').addEventListener('click', () => {
 if (new URLSearchParams(location.search).has('diag')) setTimeout(startDiagnostics, 1500);
 
 // Remember which right-side cards are open (per browser).
-const CARDS_KEY = 'interior-design.cards.v1';
+const CARDS_KEY = 'interior-design.cards.v2'; // v2: new defaults (only New walls open)
 let cardState = {};
 try { cardState = JSON.parse(localStorage.getItem(CARDS_KEY) ?? '{}'); } catch { /* ignore */ }
 for (const card of document.querySelectorAll('details.card[data-card]')) {
