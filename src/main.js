@@ -647,12 +647,23 @@ let cardState = {};
 try { cardState = JSON.parse(localStorage.getItem(CARDS_KEY) ?? '{}'); } catch { /* ignore */ }
 const allCards = [...document.querySelectorAll('details.card[data-card]')];
 for (const card of allCards) {
-  // Ctrl/Cmd+click a header: open or close every card, following the clicked one.
-  card.querySelector('summary').addEventListener('click', (e) => {
-    if (!(e.ctrlKey || e.metaKey)) return;
-    e.preventDefault();
+  // Ctrl/Cmd+click or middle-click a header: open or close every card,
+  // following the clicked one.
+  const summary = card.querySelector('summary');
+  const toggleAll = () => {
     const open = !card.open;
     for (const c of allCards) c.open = open;
+  };
+  summary.addEventListener('click', (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    toggleAll();
+  });
+  summary.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); }); // no autoscroll
+  summary.addEventListener('auxclick', (e) => {
+    if (e.button !== 1) return;
+    e.preventDefault();
+    toggleAll();
   });
   if (typeof cardState[card.dataset.card] === 'boolean') card.open = cardState[card.dataset.card];
   card.addEventListener('toggle', () => {
