@@ -268,7 +268,8 @@ function toggleTopView() {
   const d = Math.max(camera.position.distanceTo(target), 8);
   const offset = topView ? new THREE.Vector3(0, d, 0.001) : new THREE.Vector3(1, 1.1, 1.4).normalize().multiplyScalar(d);
   flyTo(target.clone().add(offset), target);
-  $('view').textContent = topView ? '3D view' : 'Top view';
+  $('view').classList.toggle('active', topView);
+  $('view').title = topView ? 'Back to 3D view (T)' : 'Toggle top view (T)';
 }
 $('view').addEventListener('click', toggleTopView);
 
@@ -375,7 +376,8 @@ function setScene(data) {
   controls.update();
   setParallel(data.view?.parallel === true);
   topView = false;
-  $('view').textContent = 'Top view';
+  $('view').classList.remove('active');
+  $('view').title = 'Toggle top view (T)';
   return count;
 }
 

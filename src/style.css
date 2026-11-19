@@ -109,7 +109,6 @@ kbd {
   position: fixed;
   top: 12px;
   left: 12px;
-  width: 76px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -121,15 +120,19 @@ kbd {
   user-select: none;
 }
 
-.tools button {
-  padding: 8px 6px;
-  text-align: center;
+/* Icon buttons (tool bar and top bar); the name is in the tooltip. */
+button.icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
 }
 
 /* Selection panel sits right of the tool bar. */
 .panel.left {
   right: auto;
-  left: calc(12px + 76px + 8px);
+  left: calc(12px + 48px + 8px); /* tool bar: 36px buttons + 2×5px padding + 2px border */
 }
 
 .panel section,
