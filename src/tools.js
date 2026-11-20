@@ -42,6 +42,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   let shift = false;
   let lastPointer = null;
   const toolListeners = new Set();
+  const stateListeners = new Set(); // busy / can-finish changes (touch action bar)
 
   // Measurement label anchor in world space (read by main's loop).
   const label = { pos: null, text: '' };
@@ -206,6 +207,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
         }
       }
     }
+    stateListeners.forEach((fn) => fn());
   }
 
   function highlightFace(shape, face) {
@@ -498,6 +500,17 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     onToolChange(fn) { toolListeners.add(fn); },
     /** Returns true if something was in progress and got cancelled. */
     cancel,
+    /** Something in progress (drawing / pushing)? */
+    get busy() { return drawing() || !!op; },
+    /** Can the current input be finished without another point (an open line chain)? */
+    get canFinish() { return tool === 'line' && chain.length >= 2; },
+    onStateChange(fn) { stateListeners.add(fn); },
+    /** Apply a typed value (touch: the action bar's value field). */
+    enterValue(text) {
+      typed = String(text);
+      applyTyped();
+      updatePreview();
+    },
     /** Enter: finish an open line chain. */
     finish() {
       if (tool === 'line') finishLine();

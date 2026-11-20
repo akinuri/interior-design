@@ -706,6 +706,32 @@ for (const card of allCards) {
   update();
 }
 
+// --- phones: settings panel toggle ---
+$('panel-btn').addEventListener('click', () => {
+  const open = document.body.classList.toggle('panel-open');
+  $('panel-btn').classList.toggle('active', open);
+});
+
+// --- touch: action bar while drawing / pushing (finish, cancel, exact value) ---
+function refreshDrawActions() {
+  const busy = tools.busy;
+  if ($('draw-actions').hidden === !busy && $('act-done').disabled === !tools.canFinish) return;
+  $('draw-actions').hidden = !busy;
+  $('act-done').disabled = !tools.canFinish;
+  if (!busy) $('act-value').value = '';
+}
+tools.onStateChange(refreshDrawActions);
+$('act-done').addEventListener('click', () => tools.finish());
+$('act-cancel').addEventListener('click', () => tools.cancel());
+$('act-value').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const v = e.target.value.trim();
+  e.target.value = '';
+  if (v) tools.enterValue(v);
+  e.target.blur(); // close the on-screen keyboard
+});
+
 // --- language ---
 function showLang() { $('lang-btn').textContent = getLang().toUpperCase(); }
 $('lang-btn').addEventListener('click', () => {

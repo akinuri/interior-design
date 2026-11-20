@@ -40,6 +40,8 @@ const STRINGS = {
     'top.parallel': 'Parallel', 'top.parallel.tip': 'Parallel (orthographic) projection: no perspective distortion (O)',
     'top.help': 'Help', 'top.help.tip': 'Help & shortcuts (?)',
     'top.lang': 'Language', 'top.lang.tip': 'Language: English · click for Türkçe',
+    'top.panel': 'Settings', 'top.panel.tip': 'Show / hide the settings',
+    'act.value': 'Value', 'act.done': 'Done', 'act.cancel': 'Cancel',
     // cards
     'card.drawing': 'Drawing', 'card.view': 'View', 'card.grid': 'Grid',
     'card.scene': 'Scene', 'card.rendering': 'Rendering',
@@ -135,6 +137,8 @@ const STRINGS = {
     'top.parallel': 'Paralel', 'top.parallel.tip': 'Paralel (ortografik) izdüşüm: perspektif bozulması yok (O)',
     'top.help': 'Yardım', 'top.help.tip': 'Yardım ve kısayollar (?)',
     'top.lang': 'Dil', 'top.lang.tip': 'Dil: Türkçe · English için tıkla',
+    'top.panel': 'Ayarlar', 'top.panel.tip': 'Ayarları göster / gizle',
+    'act.value': 'Değer', 'act.done': 'Bitti', 'act.cancel': 'İptal',
     'card.drawing': 'Çizim', 'card.view': 'Görünüm', 'card.grid': 'Izgara',
     'card.scene': 'Sahne', 'card.rendering': 'Render',
     'card.selectedShape': 'Seçili şekil', 'card.selectedLine': 'Seçili çizgi',
@@ -249,6 +253,7 @@ export function applyTranslations(root = document) {
   for (const el of root.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
   for (const el of root.querySelectorAll('[data-i18n-html]')) el.innerHTML = t(el.dataset.i18nHtml);
   for (const el of root.querySelectorAll('[data-i18n-aria]')) el.setAttribute('aria-label', t(el.dataset.i18nAria));
+  for (const el of root.querySelectorAll('[data-i18n-placeholder]')) el.setAttribute('placeholder', t(el.dataset.i18nPlaceholder));
   for (const el of root.querySelectorAll('[data-i18n-title]')) {
     const text = t(el.dataset.i18nTitle);
     if (el._tippy) setTip(el, text);
