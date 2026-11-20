@@ -12,7 +12,8 @@ const materials = new Map();
 function wallMaterial(color) {
   let m = materials.get(color);
   if (!m) {
-    m = new THREE.MeshStandardMaterial({ color, roughness: 0.9 });
+    // Pushed back slightly in depth so edge lines drawn exactly on the faces' borders win cleanly.
+    m = new THREE.MeshStandardMaterial({ color, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     materials.set(color, m);
   }
   return m;
@@ -20,6 +21,16 @@ function wallMaterial(color) {
 
 // Selection is an outline, so the wall's real colour stays visible.
 const outlineMat = new THREE.LineBasicMaterial({ color: 0x2a6df4, depthTest: false, transparent: true, opacity: 0.9 });
+
+// Thin dark lines along every wall edge, so faces that shade alike stay distinguishable.
+const edgeMat = new THREE.LineBasicMaterial({ color: 0x2b2d31, transparent: true, opacity: 0.35, depthWrite: false });
+let edgesVisible = true;
+/** Edge line style (from the Rendering settings). */
+export function setWallEdges({ visible, opacity }) {
+  edgesVisible = visible;
+  edgeMat.opacity = opacity;
+  edgeMat.visible = visible && opacity > 0;
+}
 
 export const wallLength = (w) => Math.hypot(w.b.x - w.a.x, w.b.z - w.a.z);
 
@@ -243,6 +254,11 @@ export class Walls {
       mesh.visible = wallLength(w) > 1e-6; // can be momentarily zero while dragging
       mesh.geometry = mesh.visible ? buildWallGeometry(w, this.list) : new THREE.BufferGeometry();
       mesh.material = wallMaterial(w.color ?? DEFAULT_WALL_COLOR);
+      if (mesh.visible) {
+        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry, 20), edgeMat);
+        edges.raycast = () => {}; // never pickable
+        mesh.add(edges);
+      }
       if (w.id === this.selectedId && mesh.visible) {
         const outline = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), outlineMat);
         outline.renderOrder = 5;

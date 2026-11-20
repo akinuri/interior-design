@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { t } from './i18n.js';
+import { setWallEdges } from './walls.js';
 
 // v3: earlier versions stored every value (defaults included), which pinned stale defaults.
 const STORAGE_KEY = 'interior-design.scene.v3';
@@ -16,9 +17,13 @@ const DEFAULTS = {
   sunLight: 3.2,
   sunAzimuth: 34,
   sunElevation: 54,
+  sun: true,
   shadows: true,
   exposure: 1,
   realism: true,
+  edges: true,
+  edgeStrength: 0.35,
+  viewShading: 0.5,
   ambientOcclusion: 0.8,
   aoRadius: 0.6,
   envLight: 0.45,
@@ -53,12 +58,17 @@ const FIELDS = [
 
   { heading: 's.mode', card: 'render' },
   { key: 'realism', label: 's.realism', type: 'check' },
+  { heading: 's.clarity' },
+  { key: 'edges', label: 's.edges', type: 'check' },
+  { key: 'edgeStrength', label: 's.edgeStrength', type: 'range', min: 0, max: 1, step: 0.05 },
+  { key: 'viewShading', label: 's.viewShading', type: 'range', min: 0, max: 1, step: 0.05 },
   { heading: 's.light' },
   { key: 'envLight', label: 's.envLight', type: 'range', min: 0, max: 2, step: 0.05, realism: true },
   { key: 'exposure', label: 's.exposure', type: 'range', min: 0.3, max: 2, step: 0.05 },
   { key: 'toneMapping', label: 's.filmLook', type: 'select', options: [['neutral', 's.film.neutral'], ['agx', 's.film.agx'], ['aces', 's.film.aces']] },
-  { heading: 's.shadows' },
-  { key: 'shadows', label: 's.sunShadows', type: 'check' },
+  { heading: 's.sunShadows' },
+  { key: 'sun', label: 's.sun', type: 'check' },
+  { key: 'shadows', label: 's.shadows', type: 'check' },
   { key: 'shadowSoftness', label: 's.shadowSoftness', type: 'range', min: 0, max: 10, step: 0.5, realism: true },
   { key: 'ambientOcclusion', label: 's.ao', type: 'range', min: 0, max: 1, step: 0.05, realism: true },
   { key: 'aoRadius', label: 's.aoReach', type: 'range', min: 0.1, max: 2, step: 0.05, unit: 'm', realism: true },
@@ -70,7 +80,7 @@ const FIELDS = [
  * `containers.scene` / `containers.render`, each with its own reset button,
  * and persists values.
  */
-export function createSceneSettings({ containers, resetButtons, scene, renderer, pipeline, skyLight, sun, skyDome, ground }) {
+export function createSceneSettings({ containers, resetButtons, scene, renderer, pipeline, skyLight, sun, headLight, skyDome, ground }) {
   const values = { ...DEFAULTS };
   try { Object.assign(values, JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')); } catch { /* ignore */ }
   const white = new THREE.Color(0xffffff);
@@ -89,14 +99,22 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
     skyLight.groundColor.set(v.ground);
     // With realism off, the bounce light is folded into the flat fill so overall
     // brightness stays about the same.
-    skyLight.intensity = v.realism ? v.skyLight : v.skyLight + v.envLight * 4.5;
-    sun.intensity = v.sunLight;
+    // View shading: part of the flat ambient light moves into a light shining from
+    // the camera, so faces differ by their angle to the viewer.
+    const flat = v.realism ? v.skyLight : v.skyLight + v.envLight * 4.5;
+    // Sun off: part of its strength moves into the sky light (which mostly lights
+    // upward-facing surfaces like the ground) so the scene doesn't go gloomy.
+    const sunToSky = v.sun ? 0 : 0.4 * v.sunLight;
+    skyLight.intensity = (flat + sunToSky) * (1 - 0.45 * v.viewShading);
+    headLight.intensity = 1.5 * v.viewShading;
+    setWallEdges({ visible: v.edges, opacity: v.edgeStrength });
+    sun.intensity = v.sun ? v.sunLight : 0; // Sun off: only sky ambient + camera light
     const az = THREE.MathUtils.degToRad(v.sunAzimuth);
     const el = THREE.MathUtils.degToRad(v.sunElevation);
     // Direction only; main keeps the sun (and its shadow area) centred on the view.
     sun.userData.direction.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
     skyDome.setSunDirection(sun.userData.direction);
-    sun.castShadow = v.shadows;
+    sun.castShadow = v.sun && v.shadows; // shadows need the sun
     renderer.toneMappingExposure = v.exposure;
 
     // Realism off: no AO, no bounce light, crisp shadows (the slider values are kept).
@@ -104,7 +122,14 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
     pipeline.setAmbientOcclusionRadius(v.aoRadius);
     scene.environmentIntensity = v.realism ? v.envLight : 0;
     sun.shadow.radius = v.realism ? v.shadowSoftness : 1;
-    for (const { input, f } of Object.values(inputs)) if (f.realism) input.disabled = !v.realism;
+    for (const { input, f } of Object.values(inputs)) {
+      const needs = [];
+      if (f.realism) needs.push(v.realism);
+      if (f.key === 'edgeStrength') needs.push(v.edges);
+      if (f.key === 'shadows' || f.key === 'shadowSoftness') needs.push(v.sun);
+      if (f.key === 'shadowSoftness') needs.push(v.shadows);
+      input.disabled = needs.includes(false);
+    }
     renderer.toneMapping = TONE_MAPPINGS[v.toneMapping] ?? THREE.NeutralToneMapping;
 
     // Store only what the user changed, so future default tweaks still apply.

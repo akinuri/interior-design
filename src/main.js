@@ -60,6 +60,17 @@ sun.shadow.bias = -0.0003;
 sun.shadow.normalBias = 0.02;
 sun.userData.direction = new THREE.Vector3(0, 1, 0); // set by the scene settings
 scene.add(sun, sun.target);
+// Camera light ("View shading"): shines from the camera along the view direction,
+// so faces turned toward the viewer are brighter than faces seen at an angle
+// (like SketchUp's default shading). No shadows. Follows the camera every frame.
+const headLight = new THREE.DirectionalLight(0xffffff);
+scene.add(headLight, headLight.target);
+const viewDir = new THREE.Vector3();
+function placeHeadLight() {
+  camera.getWorldDirection(viewDir);
+  headLight.position.copy(camera.position);
+  headLight.target.position.copy(camera.position).add(viewDir);
+}
 function placeSun() {
   const focus = person.eye ? camera.position : controls.target;
   // Snap to whole shadow-map texels so shadow edges don't shimmer while moving.
@@ -81,7 +92,7 @@ const pipeline = createRenderPipeline({ renderer, scene, camera: persp });
 const environment = createSceneSettings({
   containers: { scene: document.getElementById('scene-fields'), render: document.getElementById('render-fields') },
   resetButtons: { scene: document.getElementById('scene-reset'), render: document.getElementById('render-reset') },
-  scene, renderer, pipeline, skyLight: sky, sun, skyDome, ground,
+  scene, renderer, pipeline, skyLight: sky, sun, headLight, skyDome, ground,
 });
 
 // --- model & tools ---
@@ -570,6 +581,7 @@ function frame() {
   person.update(dt);
   skyDome.update(camera);
   placeSun();
+  placeHeadLight();
   skyDome.updateEnvironment(renderer, scene);
   ground.update(camera);
   updateMeasureLabel();
