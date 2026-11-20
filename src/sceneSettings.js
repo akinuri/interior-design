@@ -28,13 +28,6 @@ const DEFAULTS = {
   aoRadius: 0.6,
   envLight: 0.45,
   shadowSoftness: 3,
-  toneMapping: 'neutral',
-};
-
-const TONE_MAPPINGS = {
-  neutral: THREE.NeutralToneMapping,
-  agx: THREE.AgXToneMapping,
-  aces: THREE.ACESFilmicToneMapping,
 };
 
 // Drives the panel UI: one entry per control. `heading` / `label` / option texts are
@@ -65,7 +58,6 @@ const FIELDS = [
   { heading: 's.light' },
   { key: 'envLight', label: 's.envLight', type: 'range', min: 0, max: 2, step: 0.05, realism: true },
   { key: 'exposure', label: 's.exposure', type: 'range', min: 0.3, max: 2, step: 0.05 },
-  { key: 'toneMapping', label: 's.filmLook', type: 'select', options: [['neutral', 's.film.neutral'], ['agx', 's.film.agx'], ['aces', 's.film.aces']] },
   { heading: 's.sunShadows' },
   { key: 'sun', label: 's.sun', type: 'check' },
   { key: 'shadows', label: 's.shadows', type: 'check' },
@@ -130,7 +122,6 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
       if (f.key === 'shadowSoftness') needs.push(v.shadows);
       input.disabled = needs.includes(false);
     }
-    renderer.toneMapping = TONE_MAPPINGS[v.toneMapping] ?? THREE.NeutralToneMapping;
 
     // Store only what the user changed, so future default tweaks still apply.
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(changedFrom(DEFAULTS, values) ?? {})); } catch { /* ignore */ }
