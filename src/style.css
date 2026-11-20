@@ -201,6 +201,13 @@ kbd {
   user-select: none;
 }
 
+/* Dividers between tool groups (select · drawing · push/pull · person). */
+.tools .sep {
+  height: 1px;
+  margin: 3px 4px;
+  background: var(--border);
+}
+
 /* Icon buttons (tool bar and top bar); the name is in the tooltip. */
 button.icon {
   width: 36px;
