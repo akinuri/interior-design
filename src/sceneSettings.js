@@ -109,6 +109,7 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
     const hazeColor = v.skyVisible ? v.horizon : v.background;
     scene.fog = v.fog ? new THREE.Fog(hazeColor, v.fogDistance * 0.2, v.fogDistance) : null;
     ground.floorMaterial.color.set(v.ground);
+    ground.underMaterial.color.set(v.ground);
     ground.gridColor.set(v.gridColor);
     ground.setFadeDistance(v.gridFade);
 

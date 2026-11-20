@@ -49,9 +49,18 @@ export function createGround() {
   floor.receiveShadow = true;
   group.add(floor);
 
+  // The ground seen from below: a light, see-through layer (so it's clearly there,
+  // but the model above stays visible through it).
+  const underMat = new THREE.MeshBasicMaterial({
+    color: 0xb3afa7, side: THREE.BackSide, transparent: true, opacity: 0.35, depthWrite: false,
+  });
+  const under = new THREE.Mesh(floor.geometry, underMat);
+  group.add(under);
+
   const gridMat = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
+    side: THREE.DoubleSide, // grid and axes also visible from below the ground
     // The grid is one huge plane; its depth is imprecise, so push it back a little:
     // anything lying on the ground (flat faces, shape bottoms) must win over it.
     polygonOffset: true,
@@ -121,9 +130,10 @@ export function createGround() {
   return {
     object: group,
     floorMaterial: floor.material,
+    underMaterial: underMat,
     gridColor: gridMat.uniforms.uColor.value,
     /** Show / hide the ground plane (the grid has its own toggle). */
-    setFloorVisible(v) { floor.visible = v; },
+    setFloorVisible(v) { floor.visible = under.visible = v; },
     /** Distance (m) at which the grid has fully faded, when the camera is low. */
     setFadeDistance(d) { fadeDistance = d; },
     // Fade further away when the camera is higher up.
