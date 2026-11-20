@@ -31,8 +31,10 @@
     <!-- Drawing / editing tools: vertical bar on the left edge. -->
     <nav class="tools">
       <button data-tool="select" class="icon" data-i18n-title="tool.select.tip" data-i18n-aria="tool.select"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3.5 18.5 10l-6 1.8L10 18z"/><path d="m12.6 11.9 5 5.6"/></svg></button>
-      <button data-tool="wall" class="icon" data-i18n-title="tool.wall.tip" data-i18n-aria="tool.wall"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 18 9 7 19 11"/><circle cx="4" cy="18" r="1.6" fill="currentColor"/><circle cx="9" cy="7" r="1.6" fill="currentColor"/><circle cx="19" cy="11" r="1.6" fill="currentColor"/></svg></button>
-      <button data-tool="room" class="icon" data-i18n-title="tool.room.tip" data-i18n-aria="tool.room"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14"/><circle cx="5" cy="5" r="1.6" fill="currentColor"/><circle cx="19" cy="19" r="1.6" fill="currentColor"/></svg></button>
+      <button data-tool="line" class="icon" data-i18n-title="tool.line.tip" data-i18n-aria="tool.line"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19 19 5"/><circle cx="5" cy="19" r="1.6" fill="currentColor"/><circle cx="19" cy="5" r="1.6" fill="currentColor"/></svg></button>
+      <button data-tool="rect" class="icon" data-i18n-title="tool.rect.tip" data-i18n-aria="tool.rect"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="0.5"/></svg></button>
+      <button data-tool="circle" class="icon" data-i18n-title="tool.circle.tip" data-i18n-aria="tool.circle"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg></button>
+      <button data-tool="pushpull" class="icon" data-i18n-title="tool.pushpull.tip" data-i18n-aria="tool.pushpull"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l9 4 9-4-9-4z"/><path d="M12 14V3m-3.5 3.5L12 3l3.5 3.5"/></svg></button>
       <button data-tool="person" class="icon" data-i18n-title="tool.person.tip" data-i18n-aria="tool.person"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="2.2"/><path d="M12 8v7m0 0-3 6m3-6 3 6M7.5 11h9"/></svg></button>
     </nav>
 
@@ -61,12 +63,10 @@
 
     <aside class="panel">
       <div class="scroll-shadow top" aria-hidden="true"></div>
-      <details class="card" data-card="new-walls" open>
-        <summary data-i18n="card.newWalls">New walls</summary>
+      <details class="card" data-card="drawing" open>
+        <summary data-i18n="card.drawing">Drawing</summary>
         <div class="card-body">
-          <label><span data-i18n="f.height">Height (m)</span> <input id="set-height" type="number" step="0.05" min="0.1" value="2.7" /></label>
-          <label><span data-i18n="f.thickness">Thickness (m)</span> <input id="set-thickness" type="number" step="0.01" min="0.02" value="0.15" /></label>
-          <label><span data-i18n="f.color">Color</span> <input id="set-color" type="color" value="#ffffff" /></label>
+          <label><span data-i18n="f.newColor">Color for new shapes</span> <input id="set-color" type="color" value="#ffffff" /></label>
         </div>
       </details>
       <details class="card" data-card="view">
@@ -133,17 +133,17 @@
     <aside class="panel selection">
       <div id="sel-panel" class="card" hidden>
         <div class="card-header">
-          <span data-i18n="card.selected">Selected wall</span>
+          <span id="sel-title" data-i18n="card.selectedShape">Selected shape</span>
           <button id="sel-close" class="card-close" data-i18n-title="btn.deselect.tip" data-i18n-aria="btn.deselect">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
           </button>
         </div>
         <div class="card-body">
-          <label><span data-i18n="f.length">Length</span> <output id="sel-length"></output></label>
-          <label><span data-i18n="f.height">Height (m)</span> <input id="sel-height" type="number" step="0.05" min="0.1" /></label>
-          <label><span data-i18n="f.thickness">Thickness (m)</span> <input id="sel-thickness" type="number" step="0.01" min="0.02" /></label>
-          <label><span data-i18n="f.color">Color</span> <input id="sel-color" type="color" /></label>
-          <button id="sel-delete" class="danger" data-i18n="btn.deleteWall">Delete wall</button>
+          <label><span data-i18n="f.size">Size</span> <output id="sel-size"></output></label>
+          <label id="sel-row-height"><span data-i18n="f.height">Height (m)</span> <input id="sel-height" type="number" step="0.05" min="0" /></label>
+          <label id="sel-row-base"><span data-i18n="f.elevation">Elevation (m)</span> <input id="sel-base" type="number" step="0.05" /></label>
+          <label id="sel-row-color"><span data-i18n="f.color">Color</span> <input id="sel-color" type="color" /></label>
+          <button id="sel-delete" class="danger" data-i18n="btn.delete">Delete</button>
         </div>
       </div>
     </aside>
@@ -159,34 +159,56 @@
         <section>
           <h4 data-i18n="help.tools">Tools (left bar)</h4>
           <ul>
-          <li><span data-i18n="help.selectEdit">Select &amp; edit</span><span class="k"><kbd>V</kbd></span></li>
-          <li><span data-i18n="help.drawWalls">Draw walls</span><span class="k"><kbd>W</kbd></span></li>
-          <li><span data-i18n="help.drawRoom">Draw a rectangular room</span><span class="k"><kbd>R</kbd></span></li>
-          <li><span data-i18n="help.placePerson">Place the person</span><span class="k"><kbd>P</kbd></span></li>
+          <li><span data-i18n="help.selectTool">Select</span><span class="k"><kbd>V</kbd></span></li>
+          <li><span data-i18n="help.lineTool">Line</span><span class="k"><kbd>L</kbd></span></li>
+          <li><span data-i18n="help.rectTool">Rectangle</span><span class="k"><kbd>R</kbd></span></li>
+          <li><span data-i18n="help.circleTool">Circle</span><span class="k"><kbd>C</kbd></span></li>
+          <li><span data-i18n="help.pushpullTool">Push / Pull</span><span class="k"><kbd>P</kbd></span></li>
+          <li><span data-i18n="help.personTool">Person</span><span class="k"><kbd>U</kbd></span></li>
           </ul>
-          <p class="tip" data-i18n="help.toolsTip">Person tool: click to place the person; drag while placing to set which way they face.</p>
+          <p class="tip" data-i18n="help.toolsTip">Draw a flat shape, then push / pull it into 3D. Person tool: drag while placing to set which way they face.</p>
         </section>
         <section>
-          <h4 data-i18n="help.drawing">Drawing walls</h4>
+          <h4 data-i18n="help.drawing">Drawing</h4>
           <ul>
-          <li><span data-i18n="help.placePoints">Place points</span><span class="how" data-i18n="help.click">click</span></li>
-          <li><span data-i18n="help.lock45">Lock angle to 45° steps</span><span class="k"><kbd>Shift</kbd></span></li>
-          <li><span data-i18n="help.finish">Finish the chain</span><span class="how" data-i18n-html="help.finishHow">double-click, <span class="k"><kbd>Enter</kbd></span> or right-click</span></li>
-          <li><span data-i18n="help.closeLoop">Close a loop</span><span class="how" data-i18n="help.clickStart">click the start point</span></li>
+          <li><span data-i18n="help.linePoints">Line: place points</span><span class="how" data-i18n="help.click">click</span></li>
+          <li><span data-i18n="help.closeLoop">Close into a face</span><span class="how" data-i18n="help.clickStart">click the start point</span></li>
+          <li><span data-i18n="help.finishLines">Keep as open lines</span><span class="how" data-i18n-html="help.finishHow">double-click, <span class="k"><kbd>Enter</kbd></span> or right-click</span></li>
+          <li><span data-i18n="help.rectCorners">Rectangle: two corners</span><span class="how" data-i18n="help.clickOrDrag">click-click or drag</span></li>
+          <li><span data-i18n="help.circleSteps">Circle: centre, then radius</span><span class="how" data-i18n="help.clickOrDrag">click-click or drag</span></li>
+          <li><span data-i18n="help.shiftLock">Line 45° / square rectangle</span><span class="k"><kbd>Shift</kbd></span></li>
           <li><span data-i18n="help.cancel">Cancel</span><span class="k"><kbd>Esc</kbd></span></li>
           </ul>
-          <p class="tip" data-i18n="help.drawingTip">Points snap to the grid and to existing wall ends; the cursor ring turns orange on a wall end. Room tool: click two opposite corners, or drag.</p>
+          <p class="tip" data-i18n="help.drawingTip">Shapes are drawn on the ground, or on the top face under the cursor. Points snap to the grid and to corners; the cursor ring turns orange on a corner.</p>
+        </section>
+        <section>
+          <h4 data-i18n="help.pushpull">Push / Pull</h4>
+          <ul>
+          <li><span data-i18n="help.grabFace">Move a face</span><span class="how" data-i18n="help.dragOrClick">drag it, or click, move, click</span></li>
+          <li><span data-i18n="help.topFace">Top / bottom face</span><span class="how" data-i18n="help.changesHeight">changes the height</span></li>
+          <li><span data-i18n="help.sideFace">Side face</span><span class="how" data-i18n="help.movesSide">moves that side (circle: radius)</span></li>
+          <li><span data-i18n="help.cancelPull">Cancel</span><span class="how" data-i18n-html="help.escOrRight"><span class="k"><kbd>Esc</kbd></span> or right-click</span></li>
+          </ul>
+        </section>
+        <section>
+          <h4 data-i18n="help.values">Exact values</h4>
+          <ul>
+          <li><span data-i18n="help.valueLine">Line length</span><span class="how" data-i18n="help.typeLen">type 2.5, Enter</span></li>
+          <li><span data-i18n="help.valueRect">Rectangle size</span><span class="how" data-i18n="help.typeRect">type 4;3, Enter</span></li>
+          <li><span data-i18n="help.valueCircle">Circle radius</span><span class="how" data-i18n="help.typeRadius">type 0.6, Enter</span></li>
+          <li><span data-i18n="help.valuePull">Push / pull distance</span><span class="how" data-i18n="help.typeDist">type 2.7, Enter</span></li>
+          </ul>
+          <p class="tip" data-i18n="help.valuesTip">Type while drawing or pushing; the value shows next to the cursor. Rectangle: width;depth (4,3 also works).</p>
         </section>
         <section>
           <h4 data-i18n="help.editing">Editing</h4>
           <ul>
-          <li><span data-i18n="help.selectWall">Select a wall</span><span class="how" data-i18n="help.clickIt">click it</span></li>
-          <li><span data-i18n="help.moveCorner">Move a corner</span><span class="how" data-i18n="help.dragHandle">drag a blue handle</span></li>
-          <li><span data-i18n="help.deleteWall">Delete selected wall</span><span class="k"><kbd>Del</kbd></span></li>
+          <li><span data-i18n="help.selectObj">Select a shape or line</span><span class="how" data-i18n="help.clickIt">click it (Select tool)</span></li>
+          <li><span data-i18n="help.deleteObj">Delete selected</span><span class="k"><kbd>Del</kbd></span></li>
           <li><span data-i18n="help.deselect">Deselect</span><span class="k"><kbd>Esc</kbd></span></li>
           <li><span data-i18n="help.undoRedo">Undo / redo</span><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Z</kbd></span>&nbsp;<span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Y</kbd></span></li>
           </ul>
-          <p class="tip" data-i18n="help.editingTip">Walls joined at a corner move together. Height, thickness and colour are in the Selected wall card.</p>
+          <p class="tip" data-i18n="help.editingTip">Height, elevation and colour of the selected shape are in the Selected card.</p>
         </section>
         <section>
           <h4 data-i18n="help.camera">Camera &amp; views</h4>
@@ -210,7 +232,7 @@
           <li><span data-i18n="help.jump">Jump</span><span class="k"><kbd data-i18n="key.space">Space</kbd></span></li>
           <li><span data-i18n="help.fov">Field of view</span><span class="how" data-i18n="help.wheel">mouse wheel</span></li>
           </ul>
-          <p class="tip" data-i18n="help.eyeTip">Walls block you. Without a placed person, eye view drops one at the centre of the view.</p>
+          <p class="tip" data-i18n="help.eyeTip">Shapes block you. Without a placed person, eye view drops one at the centre of the view.</p>
         </section>
         <section>
           <h4 data-i18n="help.files">Files</h4>
@@ -218,7 +240,7 @@
           <li><span data-i18n="help.saveDesign">Save design</span><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>S</kbd></span></li>
           <li><span data-i18n="help.openDesign">Open design</span><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>O</kbd></span>&nbsp;<span class="how" data-i18n="help.orDrop">or drop a file</span></li>
           </ul>
-          <p class="tip" data-i18n="help.filesTip">A design file holds the whole scene, including every changed setting: send it to someone and they can open it here. Clear removes all walls and the person (undoable). The camera button saves a clean image of the 3D view.</p>
+          <p class="tip" data-i18n="help.filesTip">A design file holds the whole scene, including every changed setting: send it to someone and they can open it here. Clear removes all shapes, lines and the person (undoable). The camera button saves a clean image of the 3D view.</p>
         </section>
         <section>
           <h4 data-i18n="help.panels">Panels</h4>

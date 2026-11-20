@@ -3,7 +3,7 @@ import * as THREE from 'three';
 const STORAGE_KEY = 'interior-design.person.v1';
 const MODEL_HEIGHT = 1.75; // the figure below is modelled at this height
 const EYE_RATIO = 0.93; // eye height / body height
-const RADIUS = 0.22; // keep this far from wall surfaces when walking
+const RADIUS = 0.22; // keep this far from shape surfaces when walking
 const LOOK_SPEED = 0.004;
 
 /**
@@ -11,7 +11,7 @@ const LOOK_SPEED = 0.004;
  * "eye view" that puts the camera at its eyes. In eye view you drag to look
  * around and walk with WASD / arrow keys.
  */
-export function createPerson({ scene, camera, controls, canvas, walls }) {
+export function createPerson({ scene, camera, controls, canvas, model }) {
   const DEFAULTS = { placed: false, x: 0, z: 0, yaw: 0, height: 1.75, speed: 1.4 }; // speed in m/s
   const state = { ...DEFAULTS };
   try { Object.assign(state, JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')); } catch { /* ignore */ }
@@ -28,7 +28,7 @@ export function createPerson({ scene, camera, controls, canvas, walls }) {
   const keys = new Set();
   const listeners = new Set();
 
-  // --- figure (faces local +x, like the walls' length axis) ---
+  // --- figure (faces local +x) ---
   const root = new THREE.Group();
   const body = new THREE.Group();
   root.add(body);
@@ -78,19 +78,13 @@ export function createPerson({ scene, camera, controls, canvas, walls }) {
 
   function emit() { listeners.forEach((fn) => fn()); }
 
-  // --- walking with simple wall collision ---
-  function distToSegment(px, pz, a, b) {
-    const dx = b.x - a.x, dz = b.z - a.z;
-    const len2 = dx * dx + dz * dz || 1e-9;
-    const t = Math.max(0, Math.min(1, ((px - a.x) * dx + (pz - a.z) * dz) / len2));
-    return Math.hypot(px - (a.x + t * dx), pz - (a.z + t * dz));
-  }
+  // --- walking with simple collision against shapes ---
   function blocked(x, z) {
-    return walls.list.some((w) => distToSegment(x, z, w.a, w.b) < w.thickness / 2 + RADIUS);
+    return model.blocks(x, z, RADIUS, state.height * EYE_RATIO);
   }
   function tryMove(dx, dz) {
-    // Move each axis separately so you slide along walls instead of sticking.
-    const wasBlocked = blocked(state.x, state.z); // don't trap someone placed inside a wall
+    // Move each axis separately so you slide along surfaces instead of sticking.
+    const wasBlocked = blocked(state.x, state.z); // don't trap someone placed inside a shape
     if (wasBlocked || !blocked(state.x + dx, state.z)) state.x += dx;
     if (wasBlocked || !blocked(state.x, state.z + dz)) state.z += dz;
   }

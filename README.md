@@ -1,11 +1,13 @@
 # Interior Design
 
-A simple 3D interior design app that runs in the browser. Draw walls on an infinite ground, look at the result from any angle, or walk through it at eye height. Built with [Three.js](https://threejs.org/).
+A simple 3D interior design app that runs in the browser. Draw flat shapes on an infinite ground, push / pull them into 3D, look at the result from any angle, or walk through it at eye height. Built with [Three.js](https://threejs.org/).
 
 ## Features
 
-- **Draw walls**: click point by point, or drag out a whole rectangular room. Points snap to the grid and to existing wall ends.
-- **Edit walls**: select a wall to change its height, thickness or colour, or drag its corners. Connected walls follow.
+- **Draw shapes**: line (click points; close the loop to make a face), rectangle and circle. Draw on the ground or on top of another shape. Points snap to the grid and to corners.
+- **Push / Pull**: move any face of a shape to give it depth: top / bottom changes the height, a side face moves that side (a circle's side changes its radius).
+- **Exact values**: type a number while drawing or pushing, then `Enter` (e.g. `2.5` for a length, `4;3` for a rectangle).
+- **Edit**: select a shape to change its height, elevation or colour, or delete it. Designs made with the earlier wall tools open as shapes.
 - **Eye view**: place a person and see the room through their eyes. Walk around with WASD.
 - **Views**: orbit, top view and parallel (orthographic) projection.
 - **Scene and rendering settings**: sky, ground, sun, fog and grid, plus optional realistic rendering (soft shadows, corner shading, sky bounce light).
@@ -25,13 +27,16 @@ Then open the address it prints. A plain static server such as VS Code's Live Se
 
 | Action | Input |
 | --- | --- |
-| Select / Wall / Room / Person tool | `V` / `W` / `R` / `P` |
+| Select / Line / Rectangle / Circle / Push-Pull / Person | `V` / `L` / `R` / `C` / `P` / `U` |
 | Orbit | Drag (Select tool) or middle-drag |
 | Pan | Right-drag |
 | Zoom | Mouse wheel |
-| Finish a wall chain | Double-click, `Enter` or right-click |
-| Lock wall angle to 45° steps | Hold `Shift` while drawing |
-| Delete selected wall | `Delete` |
+| Close a line into a face | Click its start point |
+| Keep a line chain open | Double-click, `Enter` or right-click |
+| Line at 45° steps / square rectangle | Hold `Shift` while drawing |
+| Exact length / size / radius / distance | Type the value, then `Enter` |
+| Push / pull a face | Drag it, or click, move, click (`Esc` cancels) |
+| Delete selected shape or line | `Delete` |
 | Eye view (walk with WASD, `Shift` to run, `Space` to jump) | `E` |
 | Home (fit scene) / Top view / Parallel projection / Grid on-off | `H` / `T` / `O` / `G` |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Y` |

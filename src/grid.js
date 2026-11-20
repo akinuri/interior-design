@@ -52,6 +52,11 @@ export function createGround() {
   const gridMat = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
+    // The grid is one huge plane; its depth is imprecise, so push it back a little:
+    // anything lying on the ground (flat faces, shape bottoms) must win over it.
+    polygonOffset: true,
+    polygonOffsetFactor: 4,
+    polygonOffsetUnits: 4,
     uniforms: {
       uFadeDist: { value: 60 },
       uMinor: { value: 0.25 },

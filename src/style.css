@@ -228,6 +228,7 @@ button.icon.lang {
 }
 
 .panel .card[hidden] { display: none; }
+.panel label[hidden] { display: none; } /* e.g. rows that don't apply to the selected object */
 
 /* --- Right-side cards: translucent, tinted header, collapsible body --- */
 .panel .card {

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { t } from './i18n.js';
-import { setWallEdges } from './walls.js';
+import { setEdgeLines } from './model.js';
 
 // v3: earlier versions stored every value (defaults included), which pinned stale defaults.
 const STORAGE_KEY = 'interior-design.scene.v3';
@@ -99,7 +99,7 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
     const sunToSky = v.sun ? 0 : 0.4 * v.sunLight;
     skyLight.intensity = (flat + sunToSky) * (1 - 0.45 * v.viewShading);
     headLight.intensity = 1.5 * v.viewShading;
-    setWallEdges({ visible: v.edges, opacity: v.edgeStrength });
+    setEdgeLines({ visible: v.edges, opacity: v.edgeStrength });
     sun.intensity = v.sun ? v.sunLight : 0; // Sun off: only sky ambient + camera light
     const az = THREE.MathUtils.degToRad(v.sunAzimuth);
     const el = THREE.MathUtils.degToRad(v.sunElevation);

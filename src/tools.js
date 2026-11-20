@@ -1,65 +1,82 @@
 import * as THREE from 'three';
-import { BOX_GEO, layoutWall, wallLength } from './walls.js';
+import { pushPull, facePolygon, faceNormal, profileOf } from './model.js';
+
+/*
+ * Tools
+ *  - select:   click a shape or line to select it (left-drag still orbits).
+ *  - line:     click points; clicking the first point again closes the loop into a face.
+ *              Enter / double-click / right-click finishes an open chain as lines.
+ *  - rect:     two opposite corners (click-click or drag). Shift = square.
+ *  - circle:   centre, then radius (click-click or drag).
+ *  - pushpull: grab a face and move it along its direction (drag, or click-move-click).
+ *  - person:   place the person; drag while placing to set the facing direction.
+ *
+ * Shapes are drawn on the ground or on the top face under the cursor.
+ * While drawing / pushing, typing a value + Enter sets it exactly:
+ *   line = length · rect = width;depth (or width,depth) · circle = radius · push/pull = distance.
+ */
 
 const CLICK_TOLERANCE_PX = 5;
-const ENDPOINT_SNAP_M = 0.3;
+const BLUE = 0x2a6df4;
+const ORANGE = 0xf28c28;
 
 const dist = (p, q) => Math.hypot(p.x - q.x, p.z - q.z);
 const round6 = (v) => Math.round(v * 1e6) / 1e6;
 const fmt = (m) => `${m.toFixed(2)} m`;
 
-/**
- * Tools:
- *  - select: click a wall to select it, drag the endpoint handles to reshape
- *            (connected walls follow).
- *  - wall:   click-click-click to draw a chain of walls.
- *  - room:   two corners (click-click or drag) make a rectangle of 4 walls.
- */
-export function createTools({ getCamera, canvas, controls, scene, walls, settings, person }) {
+export function createTools({ getCamera, canvas, controls, scene, model, settings, person }) {
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
-  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
   let tool = 'select';
-  let chain = []; // points of the wall chain being drawn
-  let roomStart = null;
-  let roomStartedThisPress = false;
-  let cursor = null; // snapped ground point under the pointer
+  let plane = null; // y of the drawing plane while a shape is in progress
+  let chain = []; // line tool: points {x,y,z}
+  let anchor = null; // rect corner / circle centre {x,y,z}
+  let anchorPress = false; // anchor was set by the current press (so release = drag end, not 2nd click)
+  let op = null; // push/pull in progress
+  let hover = null; // push/pull: face under the cursor { shape, face }
+  let cursor = null; // snapped point {x,y,z,kind}
+  let typed = ''; // typed value (measurements box)
   let press = null; // { x, y, button } of the current mouse press
-  let drag = null; // endpoint drag in select mode
-  let aiming = null; // person tool: placed point, drag sets facing
+  let aiming = null; // person tool: placed point; drag sets facing
   let shift = false;
   let lastPointer = null;
   const toolListeners = new Set();
 
-  // Measurement label anchor in world space (read by main loop).
+  // Measurement label anchor in world space (read by main's loop).
   const label = { pos: null, text: '' };
 
   // --- visuals ---
-  const ghostMat = new THREE.MeshBasicMaterial({ color: 0x2a6df4, transparent: true, opacity: 0.35, depthWrite: false });
-  const ghosts = Array.from({ length: 4 }, () => {
-    const m = new THREE.Mesh(BOX_GEO, ghostMat);
-    m.visible = false;
-    m.renderOrder = 2;
-    scene.add(m);
-    return m;
+  const previewMat = new THREE.LineBasicMaterial({ color: BLUE, depthTest: false, transparent: true });
+  const preview = new THREE.Line(new THREE.BufferGeometry(), previewMat);
+  preview.renderOrder = 10;
+  const fillMat = new THREE.MeshBasicMaterial({ color: BLUE, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false });
+  const fill = new THREE.Mesh(new THREE.BufferGeometry(), fillMat);
+  fill.renderOrder = 9;
+  const hiMat = new THREE.MeshBasicMaterial({
+    color: BLUE, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
   });
-
-  const markerMat = new THREE.MeshBasicMaterial({ color: 0x2a6df4, depthTest: false, transparent: true });
+  const hiFill = new THREE.Mesh(new THREE.BufferGeometry(), hiMat);
+  const hiLine = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: BLUE }));
+  hiFill.renderOrder = hiLine.renderOrder = 8;
+  const markerMat = new THREE.MeshBasicMaterial({ color: BLUE, depthTest: false, transparent: true });
   const marker = new THREE.Mesh(new THREE.RingGeometry(0.07, 0.12, 32).rotateX(-Math.PI / 2), markerMat);
-  marker.renderOrder = 10;
-  marker.visible = false;
-  scene.add(marker);
+  marker.renderOrder = 11;
+  const helpers = [preview, fill, hiFill, hiLine, marker];
+  for (const h of helpers) { h.visible = false; h.raycast = () => {}; scene.add(h); }
 
-  const handleMat = new THREE.MeshBasicMaterial({ color: 0x2a6df4, depthTest: false, transparent: true });
-  const handles = [0, 1].map((i) => {
-    const h = new THREE.Mesh(new THREE.SphereGeometry(0.11, 20, 12), handleMat);
-    h.renderOrder = 11;
-    h.visible = false;
-    h.userData.end = i === 0 ? 'a' : 'b';
-    scene.add(h);
-    return h;
-  });
+  const setPoints = (obj, pts) => { obj.geometry.dispose(); obj.geometry = new THREE.BufferGeometry().setFromPoints(pts); };
+
+  /** Triangulated fill for a planar polygon (horizontal, or a vertical quad). */
+  function fillGeometry(pts) {
+    if (pts.length === 4 && Math.abs(pts[0].y - pts[2].y) > 1e-6) {
+      const [a, b, c, d] = pts;
+      return new THREE.BufferGeometry().setFromPoints([a, b, c, a, c, d]);
+    }
+    const tris = THREE.ShapeUtils.triangulateShape(pts.map((p) => new THREE.Vector2(p.x, p.z)), []);
+    return new THREE.BufferGeometry().setFromPoints(tris.flat().map((i) => pts[i]));
+  }
 
   // --- picking & snapping ---
   function setRay(e) {
@@ -68,204 +85,334 @@ export function createTools({ getCamera, canvas, controls, scene, walls, setting
     raycaster.setFromCamera(ndc, getCamera());
   }
 
-  function groundPoint(e) {
+  function rayToPlane(e, y) {
     setRay(e);
-    const hit = raycaster.ray.intersectPlane(groundPlane, new THREE.Vector3());
-    return hit ? { x: hit.x, z: hit.z } : null;
+    const hit = raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -y), new THREE.Vector3());
+    return hit ? { x: hit.x, y, z: hit.z } : null;
   }
 
-  function snap(raw, from, exclude) {
-    // 1. existing wall endpoints / chain points
+  /** Drawing plane under the cursor: a top face, else the ground. */
+  function planeUnder(e) {
+    setRay(e);
+    const hit = model.pick(raycaster);
+    return hit && hit.face.type === 'top' ? hit.shape.base + hit.shape.height : 0;
+  }
+
+  function snap(raw, from) {
+    const cam = getCamera();
+    // Snap radius grows with distance so it feels the same at any zoom.
+    const r = THREE.MathUtils.clamp(0.012 * cam.position.distanceTo(new THREE.Vector3(raw.x, raw.y, raw.z)), 0.05, 0.6);
     let best = null;
-    let bestD = ENDPOINT_SNAP_M;
-    for (const p of walls.endpoints().concat(chain)) {
-      if (exclude?.(p)) continue;
+    let bestD = r;
+    const candidates = [...model.verticesAt(raw.y), ...chain, ...(anchor ? [anchor] : [])];
+    for (const p of candidates) {
       const d = dist(p, raw);
       if (d < bestD) { bestD = d; best = p; }
     }
-    if (best) return { x: best.x, z: best.z, kind: 'endpoint' };
-
+    if (best) return { x: best.x, y: raw.y, z: best.z, kind: 'vertex' };
     const step = settings.snap;
-    // 2. Shift: lock direction to 45° steps from the previous point
-    if (from && shift) {
+    if (from && shift && tool === 'line') {
       const ang = Math.round(Math.atan2(raw.z - from.z, raw.x - from.x) / (Math.PI / 4)) * (Math.PI / 4);
       let len = dist(raw, from);
       if (step) len = Math.round(len / step) * step;
-      return { x: round6(from.x + Math.cos(ang) * len), z: round6(from.z + Math.sin(ang) * len), kind: 'angle' };
+      return { x: round6(from.x + Math.cos(ang) * len), y: raw.y, z: round6(from.z + Math.sin(ang) * len), kind: 'angle' };
     }
-    // 3. grid
     if (!step) return { ...raw, kind: 'free' };
-    return { x: round6(Math.round(raw.x / step) * step), z: round6(Math.round(raw.z / step) * step), kind: 'grid' };
+    return { x: round6(Math.round(raw.x / step) * step), y: raw.y, z: round6(Math.round(raw.z / step) * step), kind: 'grid' };
   }
 
+  const drawing = () => chain.length > 0 || !!anchor;
+  const isDrawTool = () => tool === 'line' || tool === 'rect' || tool === 'circle';
+
   function updateCursor(e) {
-    const raw = groundPoint(e);
-    if (!raw) { cursor = null; return; }
+    cursor = null;
     if (tool === 'person') {
-      cursor = { ...raw, kind: 'free' };
-    } else if (drag) {
-      cursor = snap(raw, null, (p) => drag.refs.some((r) => r.wall[r.key] === p));
-    } else {
-      cursor = snap(raw, tool === 'wall' ? chain.at(-1) : null);
+      const raw = rayToPlane(e, 0);
+      if (raw) cursor = { ...raw, kind: 'free' };
+    } else if (isDrawTool()) {
+      const y = plane ?? planeUnder(e);
+      const raw = rayToPlane(e, y);
+      if (raw) cursor = snap(raw, tool === 'line' ? chain.at(-1) : null);
+    } else if (tool === 'pushpull') {
+      if (op) updateOp(e);
+      else {
+        setRay(e);
+        const hit = model.pick(raycaster);
+        hover = hit ? { shape: hit.shape, face: hit.face } : null;
+      }
     }
+  }
+
+  // --- shapes from the current input ---
+  function rectCorners(a, c) {
+    let dx = c.x - a.x, dz = c.z - a.z;
+    if (shift) { const s = Math.max(Math.abs(dx), Math.abs(dz)); dx = Math.sign(dx || 1) * s; dz = Math.sign(dz || 1) * s; }
+    return [{ x: a.x, z: a.z }, { x: a.x + dx, z: a.z }, { x: a.x + dx, z: a.z + dz }, { x: a.x, z: a.z + dz }];
   }
 
   // --- preview ---
-  function placeGhost(mesh, a, b) {
-    layoutWall(mesh, { a, b, thickness: settings.thickness, height: settings.height });
-    mesh.visible = dist(a, b) > 0.001;
-  }
-
-  function setLabel(x, z, y, text) {
-    label.pos = new THREE.Vector3(x, y + 0.25, z);
-    label.text = text;
+  function setLabel(pos, text) {
+    label.pos = pos;
+    label.text = typed ? `${typed}▏` : text;
   }
 
   function updatePreview() {
-    ghosts.forEach((g) => (g.visible = false));
-    handles.forEach((h) => (h.visible = false));
+    for (const h of helpers) h.visible = false;
     label.pos = null;
 
-    marker.visible = !!cursor && (tool !== 'select' || !!drag);
-    if (cursor) {
-      marker.position.set(cursor.x, 0.01, cursor.z);
-      markerMat.color.set(cursor.kind === 'endpoint' ? 0xf28c28 : 0x2a6df4);
+    if (cursor && (isDrawTool() || tool === 'person')) {
+      marker.position.set(cursor.x, cursor.y + 0.01, cursor.z);
+      markerMat.color.set(cursor.kind === 'vertex' ? ORANGE : BLUE);
+      marker.visible = true;
     }
 
-    if (tool === 'wall' && chain.length && cursor) {
+    if (tool === 'line' && chain.length) {
+      const pts = [...chain, ...(cursor ? [cursor] : [])].map((p) => new THREE.Vector3(p.x, p.y + 0.003, p.z));
+      setPoints(preview, pts);
+      preview.visible = true;
       const a = chain.at(-1);
-      placeGhost(ghosts[0], a, cursor);
-      setLabel((a.x + cursor.x) / 2, (a.z + cursor.z) / 2, settings.height, fmt(dist(a, cursor)));
+      if (cursor) setLabel(new THREE.Vector3((a.x + cursor.x) / 2, a.y + 0.25, (a.z + cursor.z) / 2), fmt(dist(a, cursor)));
     }
 
-    if (tool === 'room' && roomStart && cursor) {
-      const c = rectCorners(roomStart, cursor);
-      for (let i = 0; i < 4; i++) placeGhost(ghosts[i], c[i], c[(i + 1) % 4]);
-      const w = Math.abs(cursor.x - roomStart.x);
-      const d = Math.abs(cursor.z - roomStart.z);
-      setLabel((roomStart.x + cursor.x) / 2, (roomStart.z + cursor.z) / 2, settings.height, `${w.toFixed(2)} × ${d.toFixed(2)} m`);
+    if (tool === 'rect' && anchor && cursor) {
+      const c = rectCorners(anchor, cursor).map((p) => new THREE.Vector3(p.x, plane + 0.003, p.z));
+      setPoints(preview, [...c, c[0]]);
+      fill.geometry.dispose();
+      fill.geometry = fillGeometry(c);
+      preview.visible = fill.visible = true;
+      const w = Math.abs(c[1].x - c[0].x), d = Math.abs(c[3].z - c[0].z);
+      setLabel(new THREE.Vector3((c[0].x + c[2].x) / 2, plane + 0.25, (c[0].z + c[2].z) / 2), `${w.toFixed(2)} × ${d.toFixed(2)} m`);
     }
 
-    const sel = walls.selected;
-    if (tool === 'select' && sel) {
-      handles[0].position.set(sel.a.x, sel.height, sel.a.z);
-      handles[1].position.set(sel.b.x, sel.height, sel.b.z);
-      handles.forEach((h) => (h.visible = true));
-      setLabel((sel.a.x + sel.b.x) / 2, (sel.a.z + sel.b.z) / 2, sel.height, fmt(wallLength(sel)));
+    if (tool === 'circle' && anchor && cursor) {
+      const radius = dist(anchor, cursor);
+      if (radius > 1e-4) {
+        const ring = profileOf({ kind: 'circle', center: anchor, radius }).map((p) => new THREE.Vector3(p.x, plane + 0.003, p.z));
+        setPoints(preview, [...ring, ring[0]]);
+        fill.geometry.dispose();
+        fill.geometry = fillGeometry(ring);
+        preview.visible = fill.visible = true;
+      }
+      setLabel(new THREE.Vector3((anchor.x + cursor.x) / 2, plane + 0.25, (anchor.z + cursor.z) / 2), `R ${fmt(radius)}`);
+    }
+
+    if (tool === 'pushpull') {
+      const target = op ? { shape: model.byId(op.id), face: op.face } : hover;
+      if (target?.shape) {
+        highlightFace(target.shape, target.face);
+        if (op) {
+          const n = op.normal;
+          setLabel(op.anchor.clone().addScaledVector(n, op.d).add(new THREE.Vector3(0, 0.25, 0)), fmt(op.d));
+        }
+      }
     }
   }
 
-  function rectCorners(p, q) {
-    return [
-      { x: p.x, z: p.z },
-      { x: q.x, z: p.z },
-      { x: q.x, z: q.z },
-      { x: p.x, z: q.z },
-    ];
+  function highlightFace(shape, face) {
+    const poly = facePolygon(shape, face);
+    if (poly) {
+      hiFill.geometry.dispose();
+      hiFill.geometry = fillGeometry(poly);
+      const seg = poly.flatMap((p, i) => [p, poly[(i + 1) % poly.length]]);
+      setPoints(hiLine, seg);
+      hiFill.visible = hiLine.visible = true;
+    } else {
+      // A circle's round side: outline both rims.
+      const P = profileOf(shape);
+      const y0 = shape.base, y1 = shape.base + shape.height;
+      const seg = [];
+      for (const y of [y0, y1]) {
+        P.forEach((p, i) => { const q = P[(i + 1) % P.length]; seg.push(new THREE.Vector3(p.x, y, p.z), new THREE.Vector3(q.x, y, q.z)); });
+      }
+      setPoints(hiLine, seg);
+      hiLine.visible = true;
+    }
   }
 
-  // --- actions ---
-  function addChainPoint() {
-    if (!cursor) return;
-    const p = { x: cursor.x, z: cursor.z };
-    if (!chain.length) { chain.push(p); return; }
-    const last = chain.at(-1);
-    if (dist(last, p) < 0.01) return;
-    walls.add(last, p, settings);
-    chain.push(p);
-    // Clicking back on the first point closes the loop and ends the chain.
-    if (chain.length > 2 && dist(p, chain[0]) < 0.001) chain = [];
+  // --- drawing actions ---
+  function resetDraw() {
+    chain = [];
+    anchor = null;
+    anchorPress = false;
+    plane = null;
+    typed = '';
   }
 
-  function finishRoom() {
-    if (!roomStart || !cursor) return;
-    if (Math.abs(cursor.x - roomStart.x) < 0.05 || Math.abs(cursor.z - roomStart.z) < 0.05) {
-      roomStart = null;
+  function addChainPoint(p) {
+    if (!p) return;
+    if (!chain.length) { plane = p.y; chain.push({ x: p.x, y: p.y, z: p.z }); return; }
+    if (dist(chain.at(-1), p) < 0.005) return;
+    // Back on the first point: close the loop into a face.
+    if (chain.length >= 3 && dist(p, chain[0]) < 1e-4) {
+      model.addShape({ kind: 'poly', points: chain, base: plane, height: 0, color: settings.color });
+      resetDraw();
       return;
     }
-    const c = rectCorners(roomStart, cursor);
-    walls.addMany(c.map((p, i) => [p, c[(i + 1) % 4]]), settings);
-    roomStart = null;
+    chain.push({ x: p.x, y: p.y, z: p.z });
   }
 
-  function finish() {
-    chain = [];
-    roomStart = null;
-    updatePreview();
+  /** Finish an open line chain (keeps the segments drawn so far). */
+  function finishLine() {
+    if (chain.length >= 2) model.addLine(chain);
+    resetDraw();
   }
 
-  function pickWall(e) {
-    setRay(e);
-    const hit = raycaster.intersectObjects(walls.group.children, false)[0];
-    walls.select(hit ? hit.object.userData.id : null);
-  }
-
-  function tryStartDrag(e) {
-    const sel = walls.selected;
-    if (!sel) return false;
-    setRay(e);
-    const hit = raycaster.intersectObjects(handles, false)[0];
-    if (!hit) return false;
-    const orig = { ...sel[hit.object.userData.end] };
-    // Every wall endpoint sitting on this corner moves together.
-    const refs = [];
-    for (const w of walls.list) {
-      for (const key of ['a', 'b']) if (dist(w[key], orig) < 1e-4) refs.push({ wall: w, key });
+  function completeShape(c = cursor) {
+    if (!anchor || !c) return;
+    if (tool === 'rect') {
+      const pts = rectCorners(anchor, c);
+      if (Math.abs(pts[1].x - pts[0].x) > 0.01 && Math.abs(pts[3].z - pts[0].z) > 0.01) {
+        model.addShape({ kind: 'poly', points: pts, base: plane, height: 0, color: settings.color });
+      }
+    } else if (tool === 'circle') {
+      const radius = dist(anchor, c);
+      if (radius > 0.01) model.addShape({ kind: 'circle', center: { x: anchor.x, z: anchor.z }, radius, base: plane, height: 0, color: settings.color });
     }
-    walls.checkpoint();
-    drag = { refs, moved: false, controlsWereEnabled: controls.enabled };
-    controls.enabled = false;
-    e.stopPropagation(); // keep camera controls (orbit / eye look) out of it
-    return true;
+    resetDraw();
   }
 
-  function endDrag() {
-    if (drag.moved) {
-      walls.pruneDegenerate();
-      walls.sync();
+  // --- push / pull ---
+  function startOp(e, hit) {
+    model.checkpoint();
+    op = {
+      id: hit.shape.id,
+      face: hit.face,
+      orig: structuredClone(hit.shape),
+      normal: faceNormal(hit.shape, hit.face),
+      anchor: hit.point.clone(),
+      startY: e.clientY,
+      byPress: true, // released after dragging = done; released without moving = keep following
+      d: 0,
+    };
+    hover = null;
+  }
+
+  /** Distance along the face normal under the mouse ray. */
+  function updateOp(e, forced) {
+    let d = forced;
+    if (d === undefined) {
+      setRay(e);
+      const { origin: O, direction: D } = raycaster.ray;
+      const N = op.normal;
+      const w0 = op.anchor.clone().sub(O);
+      const b = N.dot(D);
+      const denom = 1 - b * b;
+      if (denom < 1e-3) {
+        // Looking straight along the normal: use vertical mouse movement instead.
+        d = (op.startY - e.clientY) * 0.002 * getCamera().position.distanceTo(op.anchor);
+      } else {
+        d = (b * D.dot(w0) - N.dot(w0)) / denom;
+      }
+      const step = settings.snap;
+      if (step) d = Math.round(d / step) * step;
+    }
+    const next = pushPull(op.orig, op.face, d);
+    if (next) {
+      model.setShape(op.id, next);
+      model.sync(false);
+      op.d = d;
+    }
+  }
+
+  function commitOp() {
+    if (!op) return;
+    if (Math.abs(op.d) < 1e-6) {
+      model.setShape(op.id, op.orig);
+      model.dropCheckpoint();
+      model.sync(false);
     } else {
-      walls.dropCheckpoint();
+      model.sync(true);
     }
-    controls.enabled = drag.controlsWereEnabled;
-    drag = null;
+    op = null;
+    typed = '';
   }
 
-  // --- events ---
+  function cancelOp() {
+    if (!op) return;
+    model.setShape(op.id, op.orig);
+    model.dropCheckpoint();
+    model.sync(false);
+    op = null;
+    typed = '';
+  }
+
+  // --- typed values ---
+  function parseTyped(pair) {
+    const s = typed.trim();
+    let parts = s.split(/[;x×*\s]+/i).filter(Boolean);
+    if (pair && parts.length === 1 && s.includes(',')) parts = s.split(',');
+    return parts.map((p) => parseFloat(p.replace(',', '.'))).filter(Number.isFinite);
+  }
+
+  function applyTyped() {
+    const nums = parseTyped(tool === 'rect');
+    typed = '';
+    if (!nums.length) return;
+    const v = nums[0];
+    if (tool === 'line' && chain.length && cursor) {
+      const a = chain.at(-1);
+      let dx = cursor.x - a.x, dz = cursor.z - a.z;
+      const l = Math.hypot(dx, dz);
+      if (l < 1e-6) { dx = 1; dz = 0; } else { dx /= l; dz /= l; }
+      const p = { x: round6(a.x + dx * v), y: a.y, z: round6(a.z + dz * v) };
+      addChainPoint(p);
+    } else if (tool === 'rect' && anchor) {
+      const w = Math.abs(v), d = Math.abs(nums[1] ?? v);
+      const sx = Math.sign((cursor?.x ?? anchor.x + 1) - anchor.x) || 1;
+      const sz = Math.sign((cursor?.z ?? anchor.z + 1) - anchor.z) || 1;
+      const wasShift = shift; shift = false;
+      completeShape({ x: anchor.x + sx * w, y: plane, z: anchor.z + sz * d });
+      shift = wasShift;
+    } else if (tool === 'circle' && anchor) {
+      completeShape({ x: anchor.x + Math.abs(v), y: plane, z: anchor.z });
+    } else if (tool === 'pushpull' && op) {
+      updateOp(null, v);
+      commitOp();
+    }
+  }
+
+  // Capture phase, so typed digits / Backspace / Enter / Esc are handled here
+  // before the app's shortcuts see them.
+  window.addEventListener('keydown', (e) => {
+    if (e.target.matches?.('input, select, textarea') || e.ctrlKey || e.metaKey || e.altKey) return;
+    const busy = drawing() || !!op;
+    if (!busy) return;
+    const consume = () => { e.preventDefault(); e.stopPropagation(); updatePreview(); };
+    if (/^[0-9.,;x× -]$/i.test(e.key) && !(e.key === ' ' && !typed)) { typed += e.key; consume(); return; }
+    if (e.key === 'Backspace' && typed) { typed = typed.slice(0, -1); consume(); return; }
+    if (e.key === 'Enter' && typed) { applyTyped(); consume(); return; }
+    if (e.key === 'Escape' && typed) { typed = ''; consume(); }
+  }, true);
+
+  // --- pointer events ---
   // Capture phase on the parent so we run before OrbitControls and can block it.
   canvas.parentElement.addEventListener('pointerdown', (e) => {
     if (e.target !== canvas) return;
     press = { x: e.clientX, y: e.clientY, button: e.button };
     updateCursor(e);
     if (e.button !== 0) return;
-    if (tool === 'select') {
-      tryStartDrag(e);
-    } else if (tool === 'person' && cursor) {
-      walls.checkpoint({ extra: true }); // placing / moving the person is an undo step
+    if (tool === 'person' && cursor) {
+      model.checkpoint({ extra: true }); // placing / moving the person is an undo step
       person.place(cursor.x, cursor.z);
       aiming = { x: cursor.x, z: cursor.z };
-      walls.sync(false); // refresh undo button state
-    } else if (tool === 'room' && !roomStart && cursor) {
-      roomStart = { x: cursor.x, z: cursor.z };
-      roomStartedThisPress = true;
+      model.sync(false); // refresh undo button state
+    } else if ((tool === 'rect' || tool === 'circle') && !anchor && cursor) {
+      anchor = { x: cursor.x, y: cursor.y, z: cursor.z };
+      plane = cursor.y;
+      anchorPress = true;
+    } else if (tool === 'pushpull' && !op) {
+      setRay(e);
+      const hit = model.pick(raycaster);
+      if (hit) { startOp(e, hit); e.stopPropagation(); }
     }
     updatePreview();
   }, true);
 
   window.addEventListener('pointermove', (e) => {
     lastPointer = e;
-    if (!drag && !aiming && e.target !== canvas) return;
+    if (!aiming && !op && !drawing() && e.target !== canvas) return;
     updateCursor(e);
-    if (aiming && cursor && dist(aiming, cursor) > 0.15) {
-      person.face(Math.atan2(cursor.z - aiming.z, cursor.x - aiming.x));
-    }
-    if (drag && cursor) {
-      for (const r of drag.refs) {
-        r.wall[r.key].x = cursor.x;
-        r.wall[r.key].z = cursor.z;
-      }
-      drag.moved = true;
-      walls.sync(false);
-    }
+    if (aiming && cursor && dist(aiming, cursor) > 0.15) person.face(Math.atan2(cursor.z - aiming.z, cursor.x - aiming.x));
     updatePreview();
   });
 
@@ -275,50 +422,73 @@ export function createTools({ getCamera, canvas, controls, scene, walls, setting
     const button = press.button;
     press = null;
 
-    if (drag) { endDrag(); updatePreview(); return; }
     if (aiming) { aiming = null; person.save(); return; }
-    if (button === 2 && !moved) { finish(); return; }
+    if (button === 2 && !moved) {
+      // Right-click: finish a line chain; cancel anything else in progress.
+      if (op) cancelOp();
+      else if (tool === 'line') finishLine();
+      else resetDraw();
+      updatePreview();
+      return;
+    }
     if (button !== 0) return;
 
-    if (tool === 'select' && !moved) pickWall(e);
-    else if (tool === 'wall' && !moved) addChainPoint();
-    else if (tool === 'room' && roomStart && (moved || !roomStartedThisPress)) finishRoom();
-    roomStartedThisPress = false;
+    if (tool === 'select' && !moved) {
+      setRay(e);
+      const hit = model.pick(raycaster);
+      model.select(hit ? hit.shape.id : model.pickLine(raycaster)?.id ?? null);
+    } else if (tool === 'line' && !moved) {
+      addChainPoint(cursor);
+    } else if ((tool === 'rect' || tool === 'circle') && anchor && (moved || !anchorPress)) {
+      completeShape();
+    } else if (tool === 'pushpull' && op) {
+      if (op.byPress && !moved) op.byPress = false; // click without drag: keep following the mouse
+      else commitOp();
+    }
+    anchorPress = false;
     updatePreview();
   });
 
-  canvas.addEventListener('dblclick', () => { if (tool === 'wall') finish(); });
+  canvas.addEventListener('dblclick', () => { if (tool === 'line') { finishLine(); updatePreview(); } });
 
   const refreshFromLastPointer = () => {
-    if (lastPointer && lastPointer.target === canvas) updateCursor(lastPointer);
+    if (lastPointer && (lastPointer.target === canvas || drawing())) updateCursor(lastPointer);
     updatePreview();
   };
   window.addEventListener('keydown', (e) => { if (e.key === 'Shift') { shift = true; refreshFromLastPointer(); } });
   window.addEventListener('keyup', (e) => { if (e.key === 'Shift') { shift = false; refreshFromLastPointer(); } });
 
-  walls.onChange(() => { if (!drag) updatePreview(); });
+  model.onChange(() => { if (!op) updatePreview(); });
 
   // --- public API ---
+  function cancel() {
+    const busy = drawing() || !!op;
+    cancelOp();
+    resetDraw();
+    updatePreview();
+    return busy;
+  }
+
   function setTool(t) {
-    finish();
+    cancel();
     tool = t;
-    if (t !== 'select') walls.select(null);
+    hover = null;
+    if (t !== 'select') model.select(null);
     controls.mouseButtons.LEFT = t === 'select' ? THREE.MOUSE.ROTATE : null;
-    canvas.style.cursor = t === 'select' ? 'default' : 'crosshair';
+    canvas.style.cursor = t === 'select' ? 'default' : t === 'pushpull' ? 'ns-resize' : 'crosshair';
     toolListeners.forEach((fn) => fn(t));
     updatePreview();
   }
 
   return {
-    /** Hide editing helpers (previews, cursor ring, handles); returns a function that restores them. */
+    /** Hide editing helpers (previews, highlights, cursor ring, label); returns a restore function. */
     hideHelpers() {
-      const objects = [...ghosts, marker, ...handles];
-      const was = objects.map((o) => o.visible);
+      const was = helpers.map((o) => o.visible);
       const labelPos = label.pos;
-      objects.forEach((o) => (o.visible = false));
+      helpers.forEach((o) => (o.visible = false));
       label.pos = null;
       return () => {
-        objects.forEach((o, i) => (o.visible = was[i]));
+        helpers.forEach((o, i) => (o.visible = was[i]));
         label.pos = labelPos;
       };
     },
@@ -327,22 +497,23 @@ export function createTools({ getCamera, canvas, controls, scene, walls, setting
     get tool() { return tool; },
     onToolChange(fn) { toolListeners.add(fn); },
     /** Returns true if something was in progress and got cancelled. */
-    cancel() {
-      const busy = chain.length > 0 || !!roomStart;
-      finish();
-      return busy;
+    cancel,
+    /** Enter: finish an open line chain. */
+    finish() {
+      if (tool === 'line') finishLine();
+      updatePreview();
     },
-    finish,
     undo() {
-      if (drag) return;
-      if (walls.undo() && chain.length > 1) chain.pop();
-      else if (chain.length === 1) chain = [];
+      if (op) return;
+      // While drawing a line, undo takes back the last point.
+      if (chain.length > 1) chain.pop();
+      else if (drawing()) resetDraw();
+      else model.undo();
       updatePreview();
     },
     redo() {
-      if (drag) return;
-      chain = [];
-      walls.redo();
+      if (op || drawing()) return;
+      model.redo();
     },
   };
 }

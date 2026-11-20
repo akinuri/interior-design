@@ -1,7 +1,8 @@
 import { t } from './i18n.js';
 
 const FORMAT = 'interior-design';
-const VERSION = 2; // v1 files (walls + person only) still open; missing parts get defaults
+// v3: shapes + lines (v1/v2 files had walls; those are converted on open). Missing parts get defaults.
+const VERSION = 3;
 
 function download(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -17,17 +18,17 @@ const stamp = () => new Date().toISOString().slice(0, 16).replace('T', '_').repl
 /**
  * Design files (.json) to share a whole scene with someone using this app:
  * save / open / drag-and-drop onto the page. Opening a file replaces the
- * entire scene (walls, person, environment, grid, view); anything the file
+ * entire scene (shapes, lines, person, environment, grid, view); anything the file
  * doesn't contain is reset to defaults.
  *
  * `getScene()` returns the scene as plain data, `setScene(data)` resets the
- * app to it and returns the number of walls loaded.
+ * app to it and returns the number of objects loaded.
  */
 export function createProjectIO({ getScene, setScene, notify }) {
   function save() {
     const data = { format: FORMAT, version: VERSION, savedAt: new Date().toISOString(), ...getScene() };
     download(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), `design_${stamp()}.json`);
-    notify(t('msg.saved', { n: data.walls.length }));
+    notify(t('msg.saved', { n: data.shapes.length + data.lines.length }));
   }
 
   async function load(file) {
@@ -38,7 +39,7 @@ export function createProjectIO({ getScene, setScene, notify }) {
       notify(t('msg.notJson', { name: file.name }), true);
       return;
     }
-    if (data?.format !== FORMAT || !Array.isArray(data.walls)) {
+    if (data?.format !== FORMAT || !(Array.isArray(data.shapes) || Array.isArray(data.walls))) {
       notify(t('msg.notDesign', { name: file.name }), true);
       return;
     }
