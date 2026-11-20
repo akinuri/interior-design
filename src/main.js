@@ -35,15 +35,7 @@ let camera = persp;
 
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
-// The tilt limit is recomputed every frame so the camera can go right down to
-// just above the ground (and past horizontal if the orbit point is raised by
-// panning up), without ever moving anything on its own.
-const MIN_CAMERA_Y = 0.1;
-function updateTiltLimit() {
-  const r = camera.position.distanceTo(controls.target);
-  const cos = THREE.MathUtils.clamp((MIN_CAMERA_Y - controls.target.y) / r, -1, 1);
-  controls.maxPolarAngle = Math.min(Math.acos(cos), Math.PI * 0.75);
-}
+// No tilt limit: the camera can orbit all the way round, including below the ground.
 controls.minDistance = 1;
 controls.maxDistance = 300;
 // Right = pan everywhere; middle (or Shift+right) = orbit, so drawing tools can still orbit.
@@ -600,7 +592,6 @@ function frame() {
       }
       if (fly.t === 1) fly = null;
     }
-    updateTiltLimit();
     controls.update();
   }
   person.update(dt);
