@@ -122,6 +122,8 @@ export function createGround() {
     object: group,
     floorMaterial: floor.material,
     gridColor: gridMat.uniforms.uColor.value,
+    /** Show / hide the ground plane (the grid has its own toggle). */
+    setFloorVisible(v) { floor.visible = v; },
     /** Distance (m) at which the grid has fully faded, when the camera is low. */
     setFadeDistance(d) { fadeDistance = d; },
     // Fade further away when the camera is higher up.

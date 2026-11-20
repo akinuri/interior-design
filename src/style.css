@@ -298,6 +298,14 @@ button.icon.lang {
 .panel .card[open] > summary::after { transform: rotate(45deg); }
 .panel .card[open] > summary { border-bottom: 1px solid var(--card-divider); }
 
+/* Preset buttons (Scene card: Natural / Clean). */
+.panel .presets {
+  display: flex;
+  gap: 6px;
+}
+
+.panel .presets button { flex: 1; }
+
 .panel .card-body,
 .panel .fields {
   display: flex;

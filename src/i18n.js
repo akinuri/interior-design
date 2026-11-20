@@ -54,6 +54,8 @@ const STRINGS = {
     'btn.removePerson': 'Remove person', 'btn.resetScene': 'Reset scene', 'btn.resetRendering': 'Reset rendering',
     'btn.delete': 'Delete', 'btn.deselect': 'Deselect', 'btn.deselect.tip': 'Deselect (Esc)',
     // generated scene / rendering controls
+    's.look': 'Look', 's.look.natural': 'Natural', 's.look.clean': 'Clean',
+    's.showSky': 'Show sky', 's.showGround': 'Show ground', 's.background': 'Background',
     's.colors': 'Colors', 's.sky': 'Sky', 's.horizon': 'Horizon / haze', 's.ground': 'Ground', 's.gridLines': 'Grid lines',
     's.distance': 'Distance & fade', 's.fog': 'Fog', 's.fogDistance': 'Fog distance', 's.gridFade': 'Grid fade',
     's.lighting': 'Lighting', 's.skyLight': 'Sky light', 's.sunLight': 'Sun light',
@@ -145,6 +147,8 @@ const STRINGS = {
     'f.snapCell': 'Izgara hücresi', 'f.snapHalf': '½ hücre', 'f.snapOff': 'Kapalı',
     'btn.removePerson': 'Kişiyi kaldır', 'btn.resetScene': 'Sahneyi sıfırla', 'btn.resetRendering': 'Render ayarlarını sıfırla',
     'btn.delete': 'Sil', 'btn.deselect': 'Seçimi kaldır', 'btn.deselect.tip': 'Seçimi kaldır (Esc)',
+    's.look': 'Stil', 's.look.natural': 'Doğal', 's.look.clean': 'Sade',
+    's.showSky': 'Gökyüzünü göster', 's.showGround': 'Zemini göster', 's.background': 'Arka plan',
     's.colors': 'Renkler', 's.sky': 'Gökyüzü', 's.horizon': 'Ufuk / pus', 's.ground': 'Zemin', 's.gridLines': 'Izgara çizgileri',
     's.distance': 'Mesafe ve solma', 's.fog': 'Sis', 's.fogDistance': 'Sis mesafesi', 's.gridFade': 'Izgara solma mesafesi',
     's.lighting': 'Aydınlatma', 's.skyLight': 'Gökyüzü ışığı', 's.sunLight': 'Güneş ışığı',

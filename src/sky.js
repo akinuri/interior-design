@@ -1,5 +1,18 @@
 import * as THREE from 'three';
 
+/**
+ * Linear colour that comes out as `target` (linear) after Neutral tone mapping
+ * at `exposure`, so a chosen background shows exactly as picked. Neutral keeps
+ * mid-tones but darkens very dark colours (its "toe"): for min channel x < 0.08
+ * it outputs c − x + 6.25·x²; otherwise c − 0.04 (below its highlight range).
+ */
+function inverseNeutral(target, exposure) {
+  const m = Math.min(target.r, target.g, target.b);
+  const x = m < 0.04 ? Math.sqrt(m / 6.25) : null; // toe: solve 6.25·x² = m
+  const lift = x === null ? 0.04 : x - m;
+  return new THREE.Color(target.r + lift, target.g + lift, target.b + lift).multiplyScalar(1 / exposure);
+}
+
 // Gradient sky dome (zenith -> horizon) with a soft sun glow. Follows the camera
 // so it always surrounds the view.
 export function createSky() {
@@ -7,6 +20,7 @@ export function createSky() {
     uTop: { value: new THREE.Color() },
     uHorizon: { value: new THREE.Color() },
     uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+    uGlow: { value: 1 }, // sun glow strength (0 for a plain background)
   };
 
   const mat = new THREE.ShaderMaterial({
@@ -25,13 +39,14 @@ export function createSky() {
       uniform vec3 uTop;
       uniform vec3 uHorizon;
       uniform vec3 uSunDir;
+      uniform float uGlow;
       varying vec3 vDir;
       void main() {
         vec3 dir = normalize(vDir);
         float h = max(dir.y, 0.0);
         vec3 col = mix(uHorizon, uTop, pow(h, 0.55));
         float s = max(dot(dir, uSunDir), 0.0);
-        col += vec3(1.0, 0.92, 0.78) * (pow(s, 600.0) * 1.2 + pow(s, 12.0) * 0.12);
+        col += vec3(1.0, 0.92, 0.78) * (pow(s, 600.0) * 1.2 + pow(s, 12.0) * 0.12) * uGlow;
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>
       }
@@ -70,6 +85,23 @@ export function createSky() {
       envUniforms.uHorizon.value.set(horizon);
       envUniforms.uTop.value.set(top).lerp(envUniforms.uHorizon.value, 0.6);
       if (ground) envGround.material.color.set(ground);
+      envDirty = true;
+    },
+    /**
+     * Plain background: one colour, no sun glow. Compensated for tone mapping so it
+     * appears exactly as `color`; the lighting it gives uses the plain colour.
+     */
+    setPlain(color, exposure = 1) {
+      this.setColors(color, color, null);
+      const shown = inverseNeutral(new THREE.Color(color), exposure);
+      uniforms.uTop.value.copy(shown);
+      uniforms.uHorizon.value.copy(shown);
+      uniforms.uGlow.value = 0;
+      envUniforms.uGlow.value = 0;
+    },
+    setGlow(on) {
+      uniforms.uGlow.value = on ? 1 : 0;
+      envUniforms.uGlow.value = on ? 1 : 0;
       envDirty = true;
     },
     setSunDirection(dir) {

@@ -6,6 +6,9 @@ import { setEdgeLines } from './model.js';
 const STORAGE_KEY = 'interior-design.scene.v3';
 
 const DEFAULTS = {
+  skyVisible: true,
+  groundVisible: true,
+  background: '#3b3b3b', // shown when the sky is off
   skyTop: '#4f8fd6',
   horizon: '#cfe0ee',
   ground: '#b3afa7', // light concrete / paving
@@ -30,11 +33,24 @@ const DEFAULTS = {
   shadowSoftness: 3,
 };
 
+// One-click looks. They only set values; anything can be tweaked afterwards.
+const PRESETS = {
+  // Sky, ground and haze (SketchUp-like).
+  natural: { skyVisible: true, groundVisible: true, fog: true, gridColor: DEFAULTS.gridColor },
+  // Plain dark background, no ground, light grid floating in space (Blender-like).
+  clean: { skyVisible: false, groundVisible: false, fog: false, background: '#3b3b3b', gridColor: '#8f8f8f' },
+};
+
 // Drives the panel UI: one entry per control. `heading` / `label` / option texts are
 // translation keys (src/i18n.js). `heading` entries are sub-titles;
 // a heading's `card` (default: the previous one) says which panel card it goes in.
 const FIELDS = [
-  { heading: 's.colors', card: 'scene' },
+  { heading: 's.look', card: 'scene' },
+  { type: 'presets', options: [['natural', 's.look.natural'], ['clean', 's.look.clean']] },
+  { key: 'skyVisible', label: 's.showSky', type: 'check' },
+  { key: 'groundVisible', label: 's.showGround', type: 'check' },
+  { key: 'background', label: 's.background', type: 'color' },
+  { heading: 's.colors' },
   { key: 'skyTop', label: 's.sky', type: 'color' },
   { key: 'horizon', label: 's.horizon', type: 'color' },
   { key: 'ground', label: 's.ground', type: 'color' },
@@ -79,9 +95,19 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
 
   function apply() {
     const v = values;
-    skyDome.setColors(v.skyTop, v.horizon, v.ground);
-    // Haze takes the horizon colour so the ground melts into the sky.
-    scene.fog = v.fog ? new THREE.Fog(v.horizon, v.fogDistance * 0.2, v.fogDistance) : null;
+    // Sky off: the dome shows one plain background colour (no gradient, no sun glow).
+    // (Painting the dome rather than using scene.background keeps the colour exact
+    // through the post-processing.)
+    if (v.skyVisible) {
+      skyDome.setColors(v.skyTop, v.horizon, v.ground);
+      skyDome.setGlow(true);
+    } else {
+      skyDome.setPlain(v.background, v.exposure);
+    }
+    ground.setFloorVisible(v.groundVisible);
+    // Haze takes the horizon colour (or the background) so distant things melt into it.
+    const hazeColor = v.skyVisible ? v.horizon : v.background;
+    scene.fog = v.fog ? new THREE.Fog(hazeColor, v.fogDistance * 0.2, v.fogDistance) : null;
     ground.floorMaterial.color.set(v.ground);
     ground.gridColor.set(v.gridColor);
     ground.setFadeDistance(v.gridFade);
@@ -120,6 +146,7 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
       if (f.key === 'edgeStrength') needs.push(v.edges);
       if (f.key === 'shadows' || f.key === 'shadowSoftness') needs.push(v.sun);
       if (f.key === 'shadowSoftness') needs.push(v.shadows);
+      if (f.key === 'background') needs.push(!v.skyVisible);
       input.disabled = needs.includes(false);
     }
 
@@ -144,6 +171,21 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
       continue;
     }
     const container = containers[card];
+    if (f.type === 'presets') {
+      // A row of buttons that apply a preset (not a stored value of its own).
+      const row = document.createElement('div');
+      row.className = 'presets';
+      for (const [name, key] of f.options) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.i18n = key;
+        button.textContent = t(key);
+        button.addEventListener('click', () => { Object.assign(values, PRESETS[name]); sync(); apply(); });
+        row.append(button);
+      }
+      container.append(row);
+      continue;
+    }
     cardKeys[card].push(f.key);
     const label = document.createElement('label');
     const text = document.createElement('span');
