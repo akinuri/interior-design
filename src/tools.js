@@ -16,6 +16,7 @@ export const MAX_SIDES = 360;
  *              left to right = what's fully inside, right to left = what it touches.
  *              Ctrl = add, Shift = add / remove.
  *  - orbit:    left-drag turns the view; a click selects (as with Select).
+ *  - pan:      left-drag slides the view; a click selects (as with Select).
  *  - line:     click points; each click adds an edge. Closing a loop makes a face;
  *              a line across a face splits it. Enter / double-click / right-click / Esc stops.
  *  - rect:     two opposite corners (click-click or drag). Shift = square.
@@ -828,7 +829,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     const keys = [...[...faces].map((f) => `f${f}`), ...[...edges].map((x) => `e${x}`)];
     model.select(keys, e.detail >= 2 && mode !== 'replace' ? 'add' : mode);
   }
-  canvas.addEventListener('click', (e) => { if ((tool === 'select' || tool === 'orbit') && !lastMoved) selectAt(e); });
+  canvas.addEventListener('click', (e) => { if ((tool === 'select' || tool === 'orbit' || tool === 'pan') && !lastMoved) selectAt(e); });
 
   // --- selection box (Select tool) ---
   function boxRect(e) {
@@ -881,8 +882,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
 
   window.addEventListener('pointermove', (e) => {
     lastPointer = e;
-    // Orbiting (left-drag with Orbit, or middle-drag): a grabbing hand while it lasts.
-    if (press && (press.button === 1 || (press.button === 0 && tool === 'orbit'))
+    // Orbiting / panning with a left-drag (Orbit, Pan tools) or middle-drag: a grabbing hand while it lasts.
+    if (press && (press.button === 1 || (press.button === 0 && (tool === 'orbit' || tool === 'pan')))
       && Math.hypot(e.clientX - press.x, e.clientY - press.y) > CLICK_TOLERANCE_PX) canvas.style.cursor = 'grabbing';
     if (boxStart && Math.hypot(e.clientX - boxStart.x, e.clientY - boxStart.y) > CLICK_TOLERANCE_PX) showBox(e);
     if (!aiming && !op && !mv && !drawing() && e.target !== canvas) return;
@@ -956,14 +957,14 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   }
 
   /** The tool's own cursor (while orbiting, a grabbing hand shows instead). */
-  const toolCursor = () => ({ select: 'default', orbit: 'default', pushpull: 'ns-resize', move: 'move' }[tool] ?? 'crosshair');
+  const toolCursor = () => ({ select: 'default', orbit: 'default', pan: 'default', pushpull: 'ns-resize', move: 'move' }[tool] ?? 'crosshair');
 
   function setTool(t) {
     cancel();
     tool = t;
     hover = null;
-    if (!['select', 'orbit', 'move'].includes(t) && model.selection.size) model.select([]); // Move works on the selection
-    controls.mouseButtons.LEFT = t === 'orbit' ? THREE.MOUSE.ROTATE : null; // Select drags a box instead
+    if (!['select', 'orbit', 'pan', 'move'].includes(t) && model.selection.size) model.select([]); // Move works on the selection
+    controls.mouseButtons.LEFT = t === 'orbit' ? THREE.MOUSE.ROTATE : t === 'pan' ? THREE.MOUSE.PAN : null; // Select drags a box instead
     canvas.style.cursor = toolCursor();
     toolListeners.forEach((fn) => fn(t));
     updatePreview();

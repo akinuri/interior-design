@@ -29,10 +29,10 @@ Then open the address it prints. A plain static server such as VS Code's Live Se
 
 | Action | Input |
 | --- | --- |
-| Select / Orbit / Move | `V` / `Q` / `W` |
+| Select / Orbit / Pan / Move | `V` / `Q` / `N` / `W` |
 | Line / Rectangle / Circle / Push-Pull / Measure / Person | `L` / `R` / `C` / `P` / `M` / `U` |
 | Orbit | Drag (Orbit tool) or middle-drag |
-| Pan | Right-drag |
+| Pan | Drag (Pan tool) or right-drag |
 | Zoom | Mouse wheel |
 | Close a line into a face | Click its start point |
 | Stop drawing lines | Double-click, `Enter`, `Esc` or right-click |
