@@ -241,7 +241,19 @@ button.icon.lang {
 }
 
 .panel .card[hidden] { display: none; }
-.panel label[hidden], .panel input[hidden], .panel button[hidden] { display: none; } /* rows that don't apply to the selection */
+.panel label[hidden], .panel input[hidden], .panel button[hidden] { display: none; }
+
+/* Selection card: Loop / Ring / Grow / Shrink in one row of small buttons. */
+.sel-helpers {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+.panel .card-body .sel-helpers button {
+  padding: 5px 0;
+  font-size: 11.5px;
+  min-width: 0;
+} /* rows that don't apply to the selection */
 
 /* --- Right-side cards: translucent, tinted header, collapsible body --- */
 .panel .card {

@@ -310,6 +310,9 @@ $('sel-color').addEventListener('change', (e) => {
   model.commitColor(e.target.value);
 });
 
+// Selection helpers (Loop / Ring / Grow / Shrink).
+document.querySelectorAll('[data-select]').forEach((b) => b.addEventListener('click', () => model.selectHelper(b.dataset.select)));
+
 // Smooth slider: live while dragging, one undo step on release.
 let smoothing = false;
 const showSmooth = (deg) => { $('sel-smooth-value').textContent = deg > 0 ? `< ${deg}°` : t('f.smooth.off'); };
@@ -348,6 +351,7 @@ function refreshUI() {
     $('sel-size-label').textContent = t(key);
     $('sel-size').textContent = text;
     $('sel-row-color').hidden = $('sel-reverse').hidden = !faces.length;
+    for (const b of document.querySelectorAll('[data-select="loop"], [data-select="ring"]')) b.disabled = !edges.length;
     const canSmooth = model.smoothingEdges().length > 0;
     $('sel-row-smooth').hidden = $('sel-smooth').hidden = !canSmooth;
     if (canSmooth && !smoothing) {

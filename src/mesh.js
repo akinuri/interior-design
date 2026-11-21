@@ -824,6 +824,130 @@ export class Mesh {
     return [...this.edges].filter(([, e]) => e.curve === curve).map(([id]) => id);
   }
 
+  // --- selection helpers (loops, rings, grow / shrink) ---
+
+  /** In a four-sided face, the edge opposite edge `eid`; null for other faces. */
+  quadOpposite(fid, eid) {
+    const f = this.faces.get(fid), e = this.edges.get(eid);
+    if (!f || !e || f.loops.length !== 1 || f.loops[0].length !== 4) return null;
+    const l = f.loops[0];
+    for (let i = 0; i < 4; i++) {
+      const p = l[i], q = l[(i + 1) % 4];
+      if ((p === e.a && q === e.b) || (p === e.b && q === e.a)) return this.edgeBetween(l[(i + 2) % 4], l[(i + 3) % 4]);
+    }
+    return null;
+  }
+
+  /**
+   * Edge loop: for a face edge, the outline (loop) of the face it bounds that has the most
+   * sides (a prism's cap rather than a side); on a tie the flattest face (a box's top).
+   * For a loose line, the whole chain of lines it's part of.
+   */
+  edgeLoop(eid) {
+    const e = this.edges.get(eid);
+    if (!e) return [];
+    const fs = this.facesOfEdge(eid);
+    if (!fs.length) {
+      // Loose lines: follow the chain through points where exactly two loose lines meet.
+      const { vertexEdges } = this.index();
+      const out = new Set([eid]);
+      const queue = [eid];
+      while (queue.length) {
+        const cur = this.edges.get(queue.pop());
+        for (const v of [cur.a, cur.b]) {
+          const loose = (vertexEdges.get(v) ?? []).filter((x) => !this.facesOfEdge(x).length);
+          if (loose.length !== 2) continue;
+          for (const x of loose) if (!out.has(x)) { out.add(x); queue.push(x); }
+        }
+      }
+      return [...out];
+    }
+    const loopOf = (fid) => this.faces.get(fid).loops.find((l) => l.some((v, i) => {
+      const w = l[(i + 1) % l.length];
+      return (v === e.a && w === e.b) || (v === e.b && w === e.a);
+    }));
+    let best = null, bestKey = null;
+    for (const fid of fs) {
+      const l = loopOf(fid);
+      if (!l) continue;
+      const key = [l.length, Math.abs(this.faceNormal(fid).y)];
+      if (!best || key[0] > bestKey[0] || (key[0] === bestKey[0] && key[1] > bestKey[1] + 1e-6)) { best = l; bestKey = key; }
+    }
+    if (!best) return [eid];
+    return best.map((v, i) => this.edgeBetween(v, best[(i + 1) % best.length])).filter((x) => x != null);
+  }
+
+  /** Edge ring: the edges across neighbouring four-sided faces, parallel to `eid`. */
+  edgeRing(eid) {
+    const out = new Set([eid]);
+    const queue = [eid];
+    while (queue.length) {
+      const cur = queue.pop();
+      for (const f of this.facesOfEdge(cur)) {
+        const opp = this.quadOpposite(f, cur);
+        if (opp != null && !out.has(opp)) { out.add(opp); queue.push(opp); }
+      }
+    }
+    return [...out];
+  }
+
+  /**
+   * Face loop: the strip of four-sided faces through face `fid`, crossing edge `eid` (one of
+   * its edges) and the edge opposite it.
+   */
+  faceLoop(fid, eid) {
+    const out = new Set([fid]);
+    const opp = this.quadOpposite(fid, eid);
+    if (opp == null) return [...out];
+    for (const start of [eid, opp]) {
+      let face = fid, cross = start;
+      for (let guard = 0; guard < 10000; guard++) {
+        const next = this.facesOfEdge(cross).filter((g) => g !== face);
+        if (next.length !== 1 || out.has(next[0])) break;
+        const g = next[0];
+        const across = this.quadOpposite(g, cross);
+        if (across == null) break;
+        out.add(g);
+        face = g;
+        cross = across;
+      }
+    }
+    return [...out];
+  }
+
+  /** The edge of face `fid` nearest to point `p` (on the face). */
+  nearestEdgeOfFace(fid, p) {
+    let best = null, bestD = Infinity;
+    for (const id of this.faceEdges(fid)) {
+      const e = this.edges.get(id);
+      const d = new THREE.Line3(this.vertices.get(e.a), this.vertices.get(e.b)).closestPointToPoint(p, true, new THREE.Vector3()).distanceTo(p);
+      if (d < bestD) { bestD = d; best = id; }
+    }
+    return best;
+  }
+
+  /** Grow: faces gain the faces next to them; edges gain the edges touching them. */
+  grow(faceIds, edgeIds) {
+    const faces = new Set(faceIds), edges = new Set(edgeIds);
+    for (const f of faceIds) for (const e of this.faceEdges(f)) this.facesOfEdge(e).forEach((g) => faces.add(g));
+    const { vertexEdges } = this.index();
+    for (const id of edgeIds) {
+      const e = this.edges.get(id);
+      for (const v of [e.a, e.b]) (vertexEdges.get(v) ?? []).forEach((x) => edges.add(x));
+    }
+    return { faces, edges };
+  }
+
+  /** Shrink: drop the faces on the selection's border, and the edges at the ends of chains. */
+  shrink(faceIds, edgeIds) {
+    const fsel = new Set(faceIds), esel = new Set(edgeIds);
+    const faces = new Set([...fsel].filter((f) => this.faceEdges(f).every((e) => this.facesOfEdge(e).every((g) => fsel.has(g)))));
+    const { vertexEdges } = this.index();
+    const selectedAt = (v) => (vertexEdges.get(v) ?? []).filter((x) => esel.has(x)).length;
+    const edges = new Set([...esel].filter((id) => { const e = this.edges.get(id); return selectedAt(e.a) > 1 && selectedAt(e.b) > 1; }));
+    return { faces, edges };
+  }
+
   /** Faces joined to `fid` through soft edges (one smooth surface). */
   surface(fid) {
     const out = new Set([fid]);

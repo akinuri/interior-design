@@ -500,6 +500,15 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   function selectAt(e) {
     const { edgeHit, faceHit } = pickAt(e);
     const m = model.mesh;
+    if (e.altKey) {
+      // Alt+click: loop (edge loop / face loop); Ctrl+Alt+click: edge ring. Shift adds.
+      if (!edgeHit && !faceHit) return;
+      let faces = [], edges = [];
+      if (edgeHit) edges = e.ctrlKey || e.metaKey ? m.edgeRing(edgeHit.edge) : m.edgeLoop(edgeHit.edge);
+      else faces = m.faceLoop(faceHit.face, m.nearestEdgeOfFace(faceHit.face, faceHit.point));
+      model.select([...faces.map((f) => `f${f}`), ...edges.map((x) => `e${x}`)], e.shiftKey ? 'add' : 'replace');
+      return;
+    }
     const mode = e.ctrlKey || e.metaKey ? 'add' : e.shiftKey ? 'toggle' : 'replace';
     if (!edgeHit && !faceHit) { if (mode === 'replace') model.select([]); return; }
     let faces = new Set(), edges = new Set();

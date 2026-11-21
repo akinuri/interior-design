@@ -334,6 +334,20 @@ export class Model {
     this.sync(false);
   }
 
+  /** Selection helpers on the current selection: 'loop' | 'ring' (edges), 'grow' | 'shrink'. */
+  selectHelper(kind) {
+    const m = this.mesh;
+    const faces = this.selectedFaces, edges = this.selectedEdges;
+    let out;
+    if (kind === 'loop' || kind === 'ring') {
+      out = { faces: new Set(faces), edges: new Set(edges) };
+      for (const e of edges) (kind === 'loop' ? m.edgeLoop(e) : m.edgeRing(e)).forEach((x) => out.edges.add(x));
+    } else {
+      out = kind === 'grow' ? m.grow(faces, edges) : m.shrink(faces, edges);
+    }
+    this.select([...[...out.faces].map((f) => `f${f}`), ...[...out.edges].map((e) => `e${e}`)]);
+  }
+
   /** Edges the Smooth slider works on: the selected edges and all edges of the selected faces. */
   smoothingEdges() {
     const out = new Set(this.selectedEdges);

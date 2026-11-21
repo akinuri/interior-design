@@ -151,6 +151,12 @@
         <div class="card-body">
           <label><span id="sel-size-label" data-i18n="f.selected">Selected</span> <output id="sel-size"></output></label>
           <label id="sel-row-color"><span data-i18n="f.color">Color</span> <input id="sel-color" type="color" /></label>
+          <div class="sel-helpers">
+            <button data-select="loop" data-i18n="btn.loop" data-i18n-title="btn.loop.tip">Loop</button>
+            <button data-select="ring" data-i18n="btn.ring" data-i18n-title="btn.ring.tip">Ring</button>
+            <button data-select="grow" data-i18n="btn.grow" data-i18n-title="btn.grow.tip">Grow</button>
+            <button data-select="shrink" data-i18n="btn.shrink" data-i18n-title="btn.shrink.tip">Shrink</button>
+          </div>
           <label id="sel-row-smooth" data-i18n-title="f.smooth.tip"><span data-i18n="f.smooth">Smooth</span> <output id="sel-smooth-value"></output></label>
           <input id="sel-smooth" type="range" min="0" max="90" step="1" data-i18n-title="f.smooth.tip" />
           <button id="sel-reverse" data-i18n="btn.reverse" data-i18n-title="btn.reverse.tip">Reverse faces</button>
@@ -220,6 +226,8 @@
           <li><span data-i18n="help.selectNeighbours">… with its edges / faces</span><span class="how" data-i18n="help.doubleClick">double-click</span></li>
           <li><span data-i18n="help.selectConnected">… with everything connected</span><span class="how" data-i18n="help.tripleClick">triple-click</span></li>
           <li><span data-i18n="help.selectAddToggle">Add / add or remove</span><span class="how" data-i18n-html="help.addToggleHow"><span class="k"><kbd>Ctrl</kbd></span> / <span class="k"><kbd>Shift</kbd></span> + click</span></li>
+          <li><span data-i18n="help.selectLoop">Edge loop / face loop</span><span class="how" data-i18n-html="help.selectLoopHow"><span class="k"><kbd>Alt</kbd></span> + click</span></li>
+          <li><span data-i18n="help.selectRing">Edge ring</span><span class="how" data-i18n-html="help.selectRingHow"><span class="k"><kbd>Ctrl</kbd></span> + <span class="k"><kbd>Alt</kbd></span> + click</span></li>
           <li><span data-i18n="help.selectAll">Select all</span><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>A</kbd></span></li>
           <li><span data-i18n="help.deleteObj">Delete selected</span><span class="k"><kbd>Del</kbd></span></li>
           <li><span data-i18n="help.deselect">Deselect</span><span class="k"><kbd>Esc</kbd></span></li>
