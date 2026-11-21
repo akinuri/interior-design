@@ -35,8 +35,11 @@ export const MAX_SIDES = 360;
 
 const CLICK_TOLERANCE_PX = 5;
 const BLUE = 0x2a6df4;
-const SNAP_COLORS = { vertex: 0xf28c28, mid: 0x18a6b8, edge: 0xd6336c };
+const SNAP_COLORS = { vertex: 0xf28c28, mid: 0x18a6b8, edge: 0xd6336c, guide: 0xd6336c };
 const UP = new THREE.Vector3(0, 1, 0);
+const AXES = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
+// Axis colours, like the ground / side grid axes: X red, Y green, Z blue.
+const AXIS_COLORS = { x: 0xe0453f, y: 0x36a84a, z: 0x3a6fe8 };
 
 const round6 = (v) => Math.round(v * 1e6) / 1e6;
 const fmt = formatLength; // labels in the working unit (cm)
@@ -89,7 +92,11 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   const markerMat = new THREE.MeshBasicMaterial({ color: BLUE, depthTest: false, transparent: true, side: THREE.DoubleSide });
   const marker = new THREE.Mesh(new THREE.RingGeometry(0.07, 0.12, 32).rotateX(-Math.PI / 2), markerMat);
   marker.renderOrder = 11;
-  const helpers = [preview, fill, hiFill, hiLine, marker];
+  // Measure from an edge: the guide that will be made (dashed, long).
+  const guideMat = new THREE.LineDashedMaterial({ color: BLUE, dashSize: 0.1, gapSize: 0.08, depthTest: false, transparent: true, opacity: 0.8 });
+  const guidePreview = new THREE.Line(new THREE.BufferGeometry(), guideMat);
+  guidePreview.renderOrder = 10;
+  const helpers = [preview, fill, hiFill, hiLine, marker, guidePreview];
 
   // Selection box (Select tool): solid = fully inside (dragged left to right), dashed = touching.
   const boxEl = document.createElement('div');
@@ -130,47 +137,79 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     return hit ? hit.mesh.facePlane(hit.face) : GROUND; // a group's face too (the drawing stays outside it)
   }
 
+  /**
+   * Snap a point on plane `p` (SketchUp-like inference), in order: corners (and where guides
+   * cross edges / other guides), midpoints, on an edge or guide, along an axis from `from`
+   * (line / measure), the grid. The result is a Vector3 with `kind` (and `edge` / `axis`).
+   */
   function snap(raw, p, from, exclude = null) {
     const cam = getCamera();
     // Snap radius grows with distance so it feels the same at any zoom.
     const r = THREE.MathUtils.clamp(0.012 * cam.position.distanceTo(raw), 0.05, 0.6);
     const meshes = model.snapMeshes;
-    const at = (q, kind) => Object.assign(p.project(q), { kind });
+    const at = (q, kind, extra) => Object.assign(p.project(q), { kind }, extra);
 
-    // Corners (and the points of the shape being drawn).
-    let best = null, bestD = r;
-    for (const v of [...meshes.flatMap((m) => [...m.vertices.values()]), ...chain, ...(anchor ? [anchor] : [])]) {
-      if (!p.has(v, 1e-3) || exclude?.has(v)) continue;
-      const d = v.distanceTo(raw);
-      if (d < bestD) { bestD = d; best = v; }
-    }
-    if (best) return at(best, 'vertex');
-    // Midpoints, then anywhere on an edge.
-    const inPlane = [];
+    // Lines on this plane: edges, and guides (infinite).
+    const segs = [];
     for (const m of meshes) {
       for (const e of m.edges.values()) {
         if (e.soft) continue;
         const A = m.vertices.get(e.a), B = m.vertices.get(e.b);
         if (exclude && (exclude.has(A) || exclude.has(B))) continue;
-        if (p.has(A, 1e-3) && p.has(B, 1e-3)) inPlane.push([A, B]);
+        if (p.has(A, 1e-3) && p.has(B, 1e-3)) segs.push({ A, B });
       }
     }
+    const guides = model.guides.filter((g) => p.has(g.p, 1e-3) && Math.abs(g.d.dot(p.n)) < 1e-6)
+      .map((g) => ({ A: g.p, B: g.p.clone().add(g.d), guide: true }));
+
+    // Corners: points of the geometry and of the shape being drawn, plus guide crossings.
+    const points = [...meshes.flatMap((m) => [...m.vertices.values()]), ...chain, ...(anchor ? [anchor] : [])]
+      .filter((v) => p.has(v, 1e-3) && !exclude?.has(v));
+    for (let i = 0; i < guides.length; i++) {
+      const g = guides[i];
+      for (const o of [...guides.slice(i + 1), ...segs]) {
+        const x = crossing2D(p, g, o);
+        if (x) points.push(x);
+      }
+    }
+    let best = null, bestD = r;
+    for (const v of points) {
+      const d = v.distanceTo(raw);
+      if (d < bestD) { bestD = d; best = v; }
+    }
+    if (best) return at(best, 'vertex');
+    // Midpoints (of edges), then anywhere on an edge or a guide.
     bestD = r * 0.8;
-    for (const [A, B] of inPlane) {
+    for (const { A, B } of segs) {
       const mid = A.clone().add(B).multiplyScalar(0.5);
       const d = mid.distanceTo(raw);
       if (d < bestD) { bestD = d; best = mid; }
     }
     if (best) return at(best, 'mid');
     bestD = r * 0.6;
-    for (const [A, B] of inPlane) {
-      const q = new THREE.Line3(A, B).closestPointToPoint(raw, true, new THREE.Vector3());
+    let bestLine = null;
+    for (const l of [...segs, ...guides]) {
+      const q = new THREE.Line3(l.A, l.B).closestPointToPoint(raw, !l.guide, new THREE.Vector3());
       const d = q.distanceTo(raw);
-      if (d < bestD) { bestD = d; best = q; }
+      if (d < bestD) { bestD = d; best = q; bestLine = l; }
     }
-    if (best) return at(best, 'edge');
+    if (best) return at(best, bestLine.guide ? 'guide' : 'edge', { edge: [bestLine.A, bestLine.B] });
 
     const step = settings.snap;
+    // Along an axis from the start point (line / measure), when the direction is close to one.
+    if (from && (tool === 'line' || tool === 'measure') && !shift) {
+      const d = raw.clone().sub(from);
+      const len = d.length();
+      if (len > 1e-6) {
+        for (const [axis, dir] of [['x', AXES.x], ['y', AXES.y], ['z', AXES.z]]) {
+          const along = d.dot(dir);
+          if (Math.abs(along) / len < Math.cos(THREE.MathUtils.degToRad(4))) continue;
+          if (tool === 'line' && Math.abs(dir.dot(p.n)) > 1e-6) continue; // a line stays on its plane
+          const l = step ? Math.round(along / step) * step : along;
+          return Object.assign(from.clone().addScaledVector(dir, round6(l)), { kind: 'axis', axis });
+        }
+      }
+    }
     const c = p.to2D(raw);
     if (from && shift && tool === 'line') {
       const f = p.to2D(from);
@@ -181,6 +220,17 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     }
     if (!step) return at(raw, 'free');
     return at(p.from2D(round6(Math.round(c.x / step) * step), round6(Math.round(c.y / step) * step)), 'grid');
+  }
+
+  /** Where guide line `g` crosses line / segment `o` on plane `p` (Vector3), or null. */
+  function crossing2D(p, g, o) {
+    const a = p.to2D(g.A), b = p.to2D(g.B), c = p.to2D(o.A), d = p.to2D(o.B);
+    const rx = b.x - a.x, ry = b.y - a.y, sx = d.x - c.x, sy = d.y - c.y;
+    const den = rx * sy - ry * sx;
+    if (Math.abs(den) < 1e-12) return null;
+    const u = ((c.x - a.x) * ry - (c.y - a.y) * rx) / den; // along o
+    if (!o.guide && (u < -1e-9 || u > 1 + 1e-9)) return null;
+    return o.A.clone().lerp(o.B, u);
   }
 
   const drawing = () => chain.length > 0 || !!anchor;
@@ -195,7 +245,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       // (Measure: the plane under the cursor each time, so points can be on different faces.)
       hoverPlane = (tool === 'measure' ? null : plane) ?? planeUnder(e);
       const raw = rayToPlane(e, hoverPlane);
-      if (raw) cursor = snap(raw, hoverPlane, tool === 'line' ? chain.at(-1) : null);
+      if (raw) cursor = snap(raw, hoverPlane, tool === 'line' ? chain.at(-1) : tool === 'measure' ? anchor : null);
       if (cursor && tool === 'measure' && anchor && shift) {
         // Shift: straight along the main axis (X, Y or Z) it's closest to.
         const d = cursor.clone().sub(anchor);
@@ -257,7 +307,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       const n = tool === 'person' ? UP : p.n;
       marker.position.copy(cursor).addScaledVector(n, 0.01);
       marker.quaternion.setFromUnitVectors(UP, n);
-      markerMat.color.set(SNAP_COLORS[cursor.kind] ?? BLUE);
+      markerMat.color.set(cursor.kind === 'axis' ? AXIS_COLORS[cursor.axis] : SNAP_COLORS[cursor.kind] ?? BLUE);
       marker.visible = true;
     }
 
@@ -291,11 +341,29 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       label.text = typed ? `${typed}▏` : `${moveVertical ? '↕ ' : ''}${fmt(mv.delta.length())}`;
     }
 
+    // Preview lines take the axis colour when the cursor runs along one.
+    previewMat.color.set(cursor?.kind === 'axis' ? AXIS_COLORS[cursor.axis] : BLUE);
     if (tool === 'measure' && anchor && cursor) {
-      setPoints(preview, [anchor, cursor]);
+      if (anchor.edge) {
+        // From an edge: the offset to it (straight across) and the guide through the cursor.
+        const { foot, dir } = edgeOffset(anchor.edge, cursor);
+        setPoints(preview, [foot, cursor]);
+        if (!marksPlace(cursor) || typed) { // a guide only when ending in open space
+          setPoints(guidePreview, [cursor.clone().addScaledVector(dir, -1000), cursor.clone().addScaledVector(dir, 1000)]);
+          guidePreview.computeLineDistances();
+          const s = getCamera().position.distanceTo(cursor);
+          guideMat.dashSize = 0.008 * s;
+          guideMat.gapSize = 0.006 * s;
+          guidePreview.visible = true;
+        }
+        label.pos = foot.clone().add(cursor).multiplyScalar(0.5);
+        label.text = typed ? `${typed}▏` : fmt(foot.distanceTo(cursor));
+      } else {
+        setPoints(preview, [anchor, cursor]);
+        label.pos = anchor.clone().add(cursor).multiplyScalar(0.5);
+        label.text = typed ? `${typed}▏` : fmt(anchor.distanceTo(cursor));
+      }
       preview.visible = true;
-      label.pos = anchor.clone().add(cursor).multiplyScalar(0.5);
-      label.text = fmt(anchor.distanceTo(cursor));
     }
 
     if (tool === 'circle' && anchor && cursor) {
@@ -367,9 +435,25 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       const radius = anchor.distanceTo(c);
       if (radius > 0.01) model.edit((m) => m.addLoop(circlePoints(anchor, radius), plane, { ...drawOpts(), curve: true }));
     } else if (tool === 'measure') {
-      model.addMeasurement(anchor, c);
+      // From an edge to open space: a guide parallel to it through the end point. To something
+      // already there (an edge, corner, guide): a measurement, straight across from the edge.
+      if (anchor.edge) {
+        const { foot, dir } = edgeOffset(anchor.edge, c);
+        if (marksPlace(c)) model.addMeasurement(foot, c);
+        else model.addGuide(c, dir, foot);
+      } else model.addMeasurement(anchor, c);
     }
     resetDraw();
+  }
+
+  /** Is the point on something that already marks the place (corner, midpoint, edge, guide)? */
+  const marksPlace = (c) => ['vertex', 'mid', 'edge', 'guide'].includes(c?.kind);
+
+  /** For a line [A, B] and a point c: the point on the line nearest c, and the line's direction. */
+  function edgeOffset([A, B], c) {
+    const dir = B.clone().sub(A).normalize();
+    const foot = A.clone().addScaledVector(dir, c.clone().sub(A).dot(dir));
+    return { foot, dir };
   }
 
   // --- push / pull ---
@@ -477,6 +561,11 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       const wasShift = shift; shift = false;
       completeShape(plane.from2D(A.x + sx * w, A.y + sy * d));
       shift = wasShift;
+    } else if (tool === 'measure' && anchor && cursor) {
+      // From an edge: the guide that far from it (towards the cursor); else that far towards the cursor.
+      const from = anchor.edge ? edgeOffset(anchor.edge, cursor).foot : anchor;
+      const dir = cursor.clone().sub(from);
+      if (dir.lengthSq() > 1e-12) completeShape(from.clone().addScaledVector(dir.normalize(), Math.abs(v)));
     } else if (tool === 'circle' && anchor) {
       completeShape(anchor.clone().addScaledVector(plane.u, Math.abs(v)));
     } else if (tool === 'pushpull' && op) {
@@ -543,7 +632,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     setRay(e);
     const r = canvas.getBoundingClientRect();
     const mid = model.pickMeasurement(ndc, getCamera(), { x: r.width, y: r.height });
-    if (mid != null) { model.select([`m${mid}`]); return; }
+    if (mid != null) { model.select([mid]); return; }
     const { edgeHit, faceHit } = pickAt(e);
     const m = model.mesh;
     if (faceHit?.group != null) model.select([`g${faceHit.group}`]);
@@ -658,8 +747,14 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     {
       setRay(e);
       const r = canvas.getBoundingClientRect();
-      const id = model.pickMeasurement(ndc, getCamera(), { x: r.width, y: r.height });
-      if (id != null) { model.select([`m${id}`], e.ctrlKey || e.metaKey ? 'add' : e.shiftKey ? 'toggle' : 'replace'); return; }
+      const key = model.pickMeasurement(ndc, getCamera(), { x: r.width, y: r.height });
+      if (key != null) { model.select([key], e.ctrlKey || e.metaKey ? 'add' : e.shiftKey ? 'toggle' : 'replace'); return; }
+      const gid = model.pickGuide(raycaster.ray, getCamera(), { x: r.width, y: r.height });
+      // A guide, unless an edge is right there (guides often run along / across faces).
+      if (gid != null && !model.pickEdge(raycaster, getCamera(), ndc, { x: r.width, y: r.height }, 6)) {
+        model.select([`u${gid}`], e.ctrlKey || e.metaKey ? 'add' : e.shiftKey ? 'toggle' : 'replace');
+        return;
+      }
     }
     const { edgeHit, faceHit } = pickAt(e);
     const m = model.mesh;
@@ -732,7 +827,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       aiming = { x: cursor.x, z: cursor.z };
       model.sync(false); // refresh undo button state
     } else if ((tool === 'rect' || tool === 'circle' || tool === 'measure') && !anchor && cursor) {
-      anchor = cursor.clone();
+      // (Measure from an edge or guide: the line comes along, the result will be a guide.)
+      anchor = Object.assign(cursor.clone(), { edge: tool === 'measure' && (cursor.kind === 'edge' || cursor.kind === 'guide') ? cursor.edge : null });
       plane = hoverPlane;
       anchorPress = true;
     } else if (tool === 'pushpull' && !op) {

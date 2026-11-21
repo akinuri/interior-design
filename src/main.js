@@ -332,6 +332,9 @@ $('sel-color').addEventListener('change', (e) => {
   model.commitColor(e.target.value);
 });
 
+// Guides: show / hide the offset label (the measurement back to the edge they came from).
+$('sel-glabel').addEventListener('change', (e) => model.setGuideLabel(e.target.checked));
+
 // Selection helpers (Loop / Ring / Grow / Shrink).
 document.querySelectorAll('[data-select]').forEach((b) => b.addEventListener('click', () => model.selectHelper(b.dataset.select)));
 // Make face: fill closed loops of selected edges.
@@ -362,6 +365,11 @@ function selectionSummary(faces, edges) {
     const it = model.measurements.find((x) => x.id === measures[0]);
     return ['f.length', formatLength(it.a.distanceTo(it.b))];
   }
+  const guides = model.selectedGuides;
+  if (guides.length === 1 && model.selection.size === 1) {
+    const g = model.guides.find((x) => x.id === guides[0]);
+    if (g?.from) return ['f.offset', formatLength(g.from.distanceTo(g.p))];
+  }
   if (faces.length === 1 && !edges.length) return ['f.area', formatArea(m.faceArea(faces[0]))];
   // One edge, or the edges of one curve (a circle): its length.
   const curve = m.edges.get(edges[0])?.curve;
@@ -372,7 +380,7 @@ function selectionSummary(faces, edges) {
   const part = (n, one, many) => (n ? [t(n === 1 ? one : many, { n })] : []);
   const groups = model.selectedGroups.length;
   return ['f.selected', [...part(groups, 'sel.group', 'sel.groups'), ...part(faces.length, 'sel.face', 'sel.faces'), ...part(edges.length, 'sel.edge', 'sel.edges'),
-    ...part(measures.length, 'sel.measure', 'sel.measures')].join(', ')];
+    ...part(measures.length, 'sel.measure', 'sel.measures'), ...part(model.selectedGuides.length, 'sel.guide', 'sel.guides')].join(', ')];
 }
 
 function refreshUI() {
@@ -392,6 +400,10 @@ function refreshUI() {
     $('sel-row-color').hidden = !faces.length && !groups.length;
     $('sel-reverse').hidden = !faces.length;
     $('sel-makeface').hidden = !model.canMakeFace();
+    const gl = model.guideLabelState();
+    $('sel-row-glabel').hidden = gl === undefined;
+    $('sel-glabel').checked = gl === true;
+    $('sel-glabel').indeterminate = gl === null; // mixed
     for (const b of document.querySelectorAll('[data-select="loop"], [data-select="ring"]')) b.disabled = !edges.length;
     const canSmooth = model.smoothingEdges().length > 0;
     $('sel-row-smooth').hidden = $('sel-smooth').hidden = !canSmooth;
@@ -830,6 +842,7 @@ function frame() {
   updateMeasureLabel();
   orbitCenter.update(camera, controls.target, viewport.clientHeight, !person.eye);
   model.measureView.update(camera, viewport.clientHeight);
+  model.guideView.update(camera, controls.target);
   updateSideGrid();
   pipeline.render(camera);
 }

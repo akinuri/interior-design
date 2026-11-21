@@ -47,7 +47,7 @@ function labelTexture(text, color) {
 export function createMeasureView(scene) {
   const group = new THREE.Group();
   scene.add(group);
-  let items = []; // { id, a, b, label, w, h }
+  let items = []; // { key, a, b, label, w, h }
 
   const lineMat = (color) => new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true, opacity: color === BLUE ? 1 : 0.6, fog: false });
   const dotMat = (color) => new THREE.PointsMaterial({ color, size: 5, sizeAttenuation: false, depthTest: false, transparent: true, opacity: color === BLUE ? 1 : 0.7, fog: false });
@@ -63,19 +63,19 @@ export function createMeasureView(scene) {
   }
 
   return {
-    /** Show `list` ([{ id, a, b }], points in metres); ids in `selected` show in blue. */
+    /** Show `list` ([{ key, a, b }], points in metres); keys in `selected` show in blue. */
     set(list, selected) {
       clear();
       for (const m of list) {
-        const color = selected.has(m.id) ? BLUE : DARK;
+        const color = selected.has(m.key) ? BLUE : DARK;
         const geo = new THREE.BufferGeometry().setFromPoints([m.a, m.b]);
-        const line = new THREE.Line(geo, mats[color].line);
-        const dots = new THREE.Points(geo.clone(), mats[color].dot);
+        const parts = [new THREE.Line(geo, mats[color].line), new THREE.Points(geo.clone(), mats[color].dot)];
         const { texture, w, h } = labelTexture(formatLength(m.a.distanceTo(m.b)), color);
         const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false, transparent: true, fog: false }));
         label.position.copy(m.a).add(m.b).multiplyScalar(0.5);
-        for (const o of [line, dots, label]) { o.renderOrder = 15; o.userData.noAO = true; o.raycast = () => {}; group.add(o); }
-        items.push({ id: m.id, a: m.a, b: m.b, label, w, h });
+        parts.push(label);
+        for (const o of parts) { o.renderOrder = 15; o.userData.noAO = true; o.raycast = () => {}; group.add(o); }
+        items.push({ key: m.key, a: m.a, b: m.b, label, w, h });
       }
     },
 
@@ -90,7 +90,7 @@ export function createMeasureView(scene) {
       }
     },
 
-    /** The measurement under the mouse (its line within `px`, or its label), or null. */
+    /** The key of the measurement under the mouse (its line within `px`, or its label), or null. */
     pick(ndc, camera, size, px = 8) {
       const toScreen = (p) => { const v = p.clone().project(camera); return { x: (v.x + 1) / 2 * size.x, y: (1 - v.y) / 2 * size.y, z: v.z }; };
       const mouse = { x: (ndc.x + 1) / 2 * size.x, y: (1 - ndc.y) / 2 * size.y };
@@ -99,11 +99,66 @@ export function createMeasureView(scene) {
         const a = toScreen(it.a), b = toScreen(it.b), c = toScreen(it.label.position);
         if (a.z > 1 || b.z > 1) continue;
         // On the label?
-        if (Math.abs(mouse.x - c.x) <= it.w / 2 && Math.abs(mouse.y - c.y) <= it.h / 2) return it.id;
+        if (Math.abs(mouse.x - c.x) <= it.w / 2 && Math.abs(mouse.y - c.y) <= it.h / 2) return it.key;
         const dx = b.x - a.x, dy = b.y - a.y;
         const t = THREE.MathUtils.clamp(((mouse.x - a.x) * dx + (mouse.y - a.y) * dy) / (dx * dx + dy * dy || 1), 0, 1);
         const d = Math.hypot(mouse.x - (a.x + t * dx), mouse.y - (a.y + t * dy));
-        if (d < bestD) { bestD = d; best = it.id; }
+        if (d < bestD) { bestD = d; best = it.key; }
+      }
+      return best;
+    },
+  };
+}
+
+/*
+ * Guides (Measure tool, from an edge): infinite dashed lines that drawing snaps to. Drawn as
+ * very long lines; the dashes keep about the same size on screen.
+ */
+export const GUIDE_REACH = 1000; // m each way: "infinite" for a room or a building
+
+export function createGuideView(scene) {
+  const group = new THREE.Group();
+  scene.add(group);
+  const mat = (color, opacity) => new THREE.LineDashedMaterial({ color, dashSize: 0.1, gapSize: 0.08, transparent: true, opacity, fog: false });
+  const normal = mat('#55606e', 0.75);
+  const selected = mat(BLUE, 1);
+  let items = []; // { id, p, d }
+
+  return {
+    /** Show `list` ([{ id, p, d }]: a point and a unit direction); ids in `sel` show in blue. */
+    set(list, sel) {
+      for (const o of [...group.children]) { o.geometry.dispose(); group.remove(o); }
+      items = list;
+      for (const g of list) {
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+          g.p.clone().addScaledVector(g.d, -GUIDE_REACH), g.p.clone().addScaledVector(g.d, GUIDE_REACH),
+        ]), sel.has(g.id) ? selected : normal);
+        line.computeLineDistances();
+        line.raycast = () => {};
+        line.renderOrder = 2;
+        group.add(line);
+      }
+    },
+
+    /** Keep dashes about the same size on screen (call every frame). */
+    update(camera, target) {
+      const s = camera.isPerspectiveCamera ? camera.position.distanceTo(target) : (camera.top - camera.bottom) / camera.zoom;
+      for (const m of [normal, selected]) { m.dashSize = 0.008 * s; m.gapSize = 0.006 * s; }
+    },
+
+    /** The guide under the mouse (within `px` on screen), or null. `ray`: the mouse ray. */
+    pick(ray, camera, size, px = 7) {
+      const toScreen = (p) => { const v = p.clone().project(camera); return { x: (v.x + 1) / 2 * size.x, y: (1 - v.y) / 2 * size.y, z: v.z }; };
+      const mouse = toScreen(ray.origin.clone().addScaledVector(ray.direction, 1));
+      let best = null, bestD = px;
+      for (const g of items) {
+        // The guide's point nearest to the mouse ray, then its distance on screen.
+        const q = new THREE.Vector3();
+        ray.distanceSqToSegment(g.p.clone().addScaledVector(g.d, -GUIDE_REACH), g.p.clone().addScaledVector(g.d, GUIDE_REACH), null, q);
+        const s = toScreen(q);
+        if (s.z > 1 || s.z < -1) continue;
+        const d = Math.hypot(s.x - mouse.x, s.y - mouse.y);
+        if (d < bestD) { bestD = d; best = g.id; }
       }
       return best;
     },
