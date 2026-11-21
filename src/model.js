@@ -159,7 +159,13 @@ const faceUniforms = {
   uSelectTint: { value: new THREE.Color(0x2a6df4) },
   // Selection dots: pattern cell size in device pixels (scaled for high-DPI screens).
   uDotScale: { value: Math.max(1, Math.round(Math.min(window.devicePixelRatio || 1, 2))) },
+  uStyle: { value: 0 }, // face style, see FACE_STYLES
 };
+
+// Face styles (SketchUp-like): shaded, monochrome (one neutral colour), hidden line (flat white,
+// no shading), x-ray (see-through), wireframe (edges only).
+export const FACE_STYLES = ['shaded', 'mono', 'hidden', 'xray', 'wire'];
+let faceStyle = 'shaded';
 for (const mat of [faceMat, groundFaceMat]) {
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, faceUniforms);
@@ -173,19 +179,47 @@ for (const mat of [faceMat, groundFaceMat]) {
         '#include <shadowmap_vertex>',
       ].join('\n'));
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uBackOn;\nuniform vec3 uBackColor;\nuniform vec3 uSelectTint;\nuniform float uDotScale;\nvarying float vSelected;')
-      .replace('#include <color_fragment>', [
-        '#include <color_fragment>',
-        'if (uBackOn > 0.5 && !gl_FrontFacing) diffuseColor.rgb = uBackColor;',
+      .replace('#include <common>', [
+        '#include <common>',
+        'uniform float uBackOn;',
+        'uniform vec3 uBackColor;',
+        'uniform vec3 uSelectTint;',
+        'uniform float uDotScale;',
+        'uniform float uStyle;',
+        'varying float vSelected;',
         // Selected (SketchUp-like): a light blue wash plus a fine pattern of blue dots.
-        'if (vSelected > 0.5) {',
+        'vec3 markSelected(vec3 c) {',
+        '  if (vSelected < 0.5) return c;',
         '  vec2 cell = mod(floor(gl_FragCoord.xy / uDotScale), 4.0);',
         '  float dotOn = (cell.x == 0.0 && cell.y == 0.0) || (cell.x == 2.0 && cell.y == 2.0) ? 1.0 : 0.0;',
-        '  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.55, 0.7, 1.0), 0.18);',
-        '  diffuseColor.rgb = mix(diffuseColor.rgb, uSelectTint * 0.6, dotOn * 0.9);',
+        '  c = mix(c, vec3(0.55, 0.7, 1.0), 0.18);',
+        '  return mix(c, uSelectTint * 0.6, dotOn * 0.9);',
         '}',
+        // Back faces in their own colour (if on); monochrome: one neutral colour for all fronts.
+        'vec3 faceColor(vec3 c) {',
+        '  if (uBackOn > 0.5 && !gl_FrontFacing) return uBackColor;',
+        '  return abs(uStyle - 1.0) < 0.5 ? vec3(0.86) : c;',
+        '}',
+      ].join('\n'))
+      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = markSelected(faceColor(diffuseColor.rgb));')
+      // Hidden line: flat white (or the back colour), no shading or shadows.
+      .replace('#include <opaque_fragment>', [
+        '#include <opaque_fragment>',
+        'if (abs(uStyle - 2.0) < 0.5) gl_FragColor.rgb = markSelected(faceColor(vec3(1.0)));',
       ].join('\n'));
   };
+}
+
+/** Face style (from the Rendering settings): one of FACE_STYLES. */
+export function setFaceStyle(style) {
+  faceStyle = FACE_STYLES.includes(style) ? style : 'shaded';
+  faceUniforms.uStyle.value = FACE_STYLES.indexOf(faceStyle);
+  const xray = faceStyle === 'xray';
+  for (const m of [faceMat, groundFaceMat]) {
+    if (m.transparent !== xray) { m.transparent = xray; m.depthWrite = !xray; m.needsUpdate = true; }
+    m.opacity = xray ? 0.45 : 1;
+    m.visible = faceStyle !== 'wire';
+  }
 }
 
 /** Back face colouring (from the Rendering settings). */
@@ -427,6 +461,7 @@ export class Model {
 
   /** Raycast faces: { face, point, normal } or null. */
   pickFace(raycaster) {
+    if (faceStyle === 'wire') return null; // no faces to pick
     const hit = raycaster.intersectObjects(this.pickables, false)[0];
     if (!hit) return null;
     const face = hit.object.userData.faceIds?.[hit.faceIndex];
@@ -460,6 +495,7 @@ export class Model {
       const v = c.point.clone().project(camera);
       ray.setFromCamera(new THREE.Vector2(v.x, v.y), camera);
       const dist = c.point.clone().sub(ray.ray.origin).dot(ray.ray.direction);
+      if (faceStyle === 'xray' || faceStyle === 'wire') return c; // faces hide nothing
       const hit = ray.intersectObjects(this.pickables, false)[0];
       if (!hit || hit.distance > dist - (0.02 + 0.005 * dist)) return c;
     }

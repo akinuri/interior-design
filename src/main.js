@@ -89,6 +89,16 @@ const environment = createSceneSettings({
   scene, renderer, pipeline, skyLight: sky, sun, headLight, skyDome, ground,
 });
 
+// The Selection card sits below the top bar, whose height grows if it wraps to two rows.
+new ResizeObserver(() => {
+  document.documentElement.style.setProperty('--top-bar-bottom', `${document.querySelector('.toolbar').getBoundingClientRect().bottom + 12}px`);
+}).observe(document.querySelector('.toolbar'));
+
+// --- face style buttons (top bar) ---
+const faceStyleButtons = document.querySelectorAll('[data-face-style]');
+faceStyleButtons.forEach((b) => b.addEventListener('click', () => environment.setValue('faceStyle', b.dataset.faceStyle)));
+environment.onApply((v) => faceStyleButtons.forEach((b) => b.classList.toggle('active', b.dataset.faceStyle === v.faceStyle)));
+
 // --- model & tools ---
 // Drawing settings (Drawing card), remembered and saved in designs when changed.
 const NEW_SHAPE_DEFAULTS = { color: DEFAULT_COLOR, circleSides: 48 };

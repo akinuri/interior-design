@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { t } from './i18n.js';
-import { setEdgeLines, setBackFaces } from './model.js';
+import { setEdgeLines, setBackFaces, setFaceStyle, FACE_STYLES } from './model.js';
 
 // v3: earlier versions stored every value (defaults included), which pinned stale defaults.
 const STORAGE_KEY = 'interior-design.scene.v3';
@@ -23,6 +23,7 @@ const DEFAULTS = {
   sun: true,
   shadows: true,
   exposure: 1,
+  faceStyle: 'shaded',
   realism: true,
   edges: true,
   edgeStrength: 0.35,
@@ -94,6 +95,7 @@ const FIELDS = [
  */
 export function createSceneSettings({ containers, resetButtons, scene, renderer, pipeline, skyLight, sun, headLight, skyDome, ground }) {
   const values = { ...DEFAULTS };
+  const applyListeners = new Set();
   try { Object.assign(values, JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')); } catch { /* ignore */ }
   const white = new THREE.Color(0xffffff);
 
@@ -130,7 +132,12 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
     const sunToSky = v.sun ? 0 : 0.4 * v.sunLight;
     skyLight.intensity = (flat + sunToSky) * (1 - 0.45 * v.viewShading);
     headLight.intensity = 1.5 * v.viewShading;
-    setEdgeLines({ visible: v.edges, opacity: v.edgeStrength });
+    if (!FACE_STYLES.includes(v.faceStyle)) v.faceStyle = DEFAULTS.faceStyle;
+    setFaceStyle(v.faceStyle);
+    // Hidden line / wireframe are line drawings: edges always on and strong, no shadows or AO.
+    const lineArt = v.faceStyle === 'hidden' || v.faceStyle === 'wire';
+    const noAO = lineArt || v.faceStyle === 'xray';
+    setEdgeLines({ visible: lineArt || v.edges, opacity: lineArt ? 0.9 : v.edgeStrength });
     setBackFaces({ visible: v.backFaces, color: v.backColor });
     sun.intensity = v.sun ? v.sunLight : 0; // Sun off: only sky ambient + camera light
     const az = THREE.MathUtils.degToRad(v.sunAzimuth);
@@ -138,24 +145,27 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
     // Direction only; main keeps the sun (and its shadow area) centred on the view.
     sun.userData.direction.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az));
     skyDome.setSunDirection(sun.userData.direction);
-    sun.castShadow = v.sun && v.shadows; // shadows need the sun
+    sun.castShadow = v.sun && v.shadows && !lineArt; // shadows need the sun
     renderer.toneMappingExposure = v.exposure;
 
     // Realism off: no AO, no bounce light, crisp shadows (the slider values are kept).
-    pipeline.setAmbientOcclusion(v.realism ? v.ambientOcclusion : 0);
+    pipeline.setAmbientOcclusion(v.realism && !noAO ? v.ambientOcclusion : 0);
     pipeline.setAmbientOcclusionRadius(v.aoRadius);
     scene.environmentIntensity = v.realism ? v.envLight : 0;
     sun.shadow.radius = v.realism ? v.shadowSoftness : 1;
     for (const { input, f } of Object.values(inputs)) {
       const needs = [];
       if (f.realism) needs.push(v.realism);
-      if (f.key === 'edgeStrength') needs.push(v.edges);
+      if (f.key === 'edgeStrength') needs.push(v.edges && !lineArt);
+      if (f.key === 'edges') needs.push(!lineArt);
       if (f.key === 'backColor') needs.push(v.backFaces);
       if (f.key === 'shadows' || f.key === 'shadowSoftness') needs.push(v.sun);
       if (f.key === 'shadowSoftness') needs.push(v.shadows);
       if (f.key === 'background') needs.push(!v.skyVisible);
       input.disabled = needs.includes(false);
     }
+
+    applyListeners.forEach((fn) => fn(values));
 
     // Store only what the user changed, so future default tweaks still apply.
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(changedFrom(DEFAULTS, values) ?? {})); } catch { /* ignore */ }
@@ -255,6 +265,16 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
   return {
     /** Only the values that differ from the defaults (undefined if none). */
     getChanged: () => changedFrom(DEFAULTS, values),
+    /** Set one value (e.g. the face style, chosen in the top bar). */
+    setValue(key, value) {
+      if (!(key in DEFAULTS)) return;
+      values[key] = value;
+      sync();
+      apply();
+    },
+    getValue: (key) => values[key],
+    /** Called after every change (with all values). */
+    onApply(fn) { applyListeners.add(fn); fn(values); },
     /** Reset to defaults, then take every valid value from `obj` (e.g. from a design file). */
     set(obj) {
       Object.assign(values, pickValid(DEFAULTS, obj));
