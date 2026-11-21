@@ -334,6 +334,38 @@ export class Model {
     this.sync(false);
   }
 
+  /** Edges the Smooth slider works on: the selected edges and all edges of the selected faces. */
+  smoothingEdges() {
+    const out = new Set(this.selectedEdges);
+    for (const f of this.selectedFaces) if (this.mesh.faces.has(f)) this.mesh.faceEdges(f).forEach((e) => out.add(e));
+    return [...out].filter((e) => this.mesh.edgeAngle(e) != null);
+  }
+
+  /** The slider position that matches the selection now: just above its steepest smooth edge (0 = none). */
+  smoothingAngle() {
+    let max = -1;
+    for (const e of this.smoothingEdges()) if (this.mesh.edges.get(e).soft) max = Math.max(max, this.mesh.edgeAngle(e));
+    return max < 0 ? 0 : Math.min(90, Math.floor(max) + 1);
+  }
+
+  /** Live smoothing preview (no history; see commitSmoothing). */
+  previewSmoothing(maxDeg) {
+    const edges = this.smoothingEdges();
+    this.softBefore ??= new Map(edges.map((e) => [e, !!this.mesh.edges.get(e).soft]));
+    this.mesh.setSmoothing(edges, maxDeg);
+    this.sync(false);
+  }
+
+  /** Smooth the selection's edges below `maxDeg` as one undo step. */
+  commitSmoothing(maxDeg) {
+    // Put the previewed state back first, so the undo step holds the old one.
+    for (const [e, soft] of this.softBefore ?? []) { const edge = this.mesh.edges.get(e); if (edge) { if (soft) edge.soft = true; else delete edge.soft; } }
+    this.softBefore = null;
+    this.mesh.changed();
+    const edges = this.smoothingEdges();
+    this.edit((m) => m.setSmoothing(edges, maxDeg));
+  }
+
   /** Turn the selected faces around (front ↔ back), one undo step. */
   reverseSelection() {
     const faces = this.selectedFaces;
@@ -508,8 +540,8 @@ export class Model {
       const A = m.vertices.get(e.a), B = m.vertices.get(e.b);
       const lift = onGround(A) && onGround(B) ? FLAT_LIFT : 0;
       const seg = [A.x, A.y + lift, A.z, B.x, B.y + lift, B.z];
+      if (e.soft) continue; // smooth edges stay hidden, selected or not
       if (this.selection.has(`e${id}`)) selEdgePos.push(...seg);
-      if (e.soft) continue;
       (m.facesOfEdge(id).length ? edgePos : linePos).push(...seg);
     }
     const addLines = (pos, mat, order = 0) => {

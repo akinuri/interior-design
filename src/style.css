@@ -241,7 +241,7 @@ button.icon.lang {
 }
 
 .panel .card[hidden] { display: none; }
-.panel label[hidden] { display: none; } /* e.g. rows that don't apply to the selected object */
+.panel label[hidden], .panel input[hidden], .panel button[hidden] { display: none; } /* rows that don't apply to the selection */
 
 /* --- Right-side cards: translucent, tinted header, collapsible body --- */
 .panel .card {

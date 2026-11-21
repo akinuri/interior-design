@@ -310,6 +310,21 @@ $('sel-color').addEventListener('change', (e) => {
   model.commitColor(e.target.value);
 });
 
+// Smooth slider: live while dragging, one undo step on release.
+let smoothing = false;
+const showSmooth = (deg) => { $('sel-smooth-value').textContent = deg > 0 ? `< ${deg}°` : t('f.smooth.off'); };
+$('sel-smooth').addEventListener('input', (e) => {
+  smoothing = true;
+  const deg = parseInt(e.target.value, 10);
+  showSmooth(deg);
+  model.previewSmoothing(deg);
+});
+$('sel-smooth').addEventListener('change', (e) => {
+  if (!smoothing) return;
+  smoothing = false;
+  model.commitSmoothing(parseInt(e.target.value, 10));
+});
+
 /** Selection summary: area of one face, length of one edge, else counts. */
 function selectionSummary(faces, edges) {
   const m = model.mesh;
@@ -333,6 +348,13 @@ function refreshUI() {
     $('sel-size-label').textContent = t(key);
     $('sel-size').textContent = text;
     $('sel-row-color').hidden = $('sel-reverse').hidden = !faces.length;
+    const canSmooth = model.smoothingEdges().length > 0;
+    $('sel-row-smooth').hidden = $('sel-smooth').hidden = !canSmooth;
+    if (canSmooth && !smoothing) {
+      const deg = model.smoothingAngle();
+      $('sel-smooth').value = String(deg);
+      showSmooth(deg);
+    }
     if (faces.length && !pickingColor) $('sel-color').value = model.mesh.faces.get(faces[0]).color ?? DEFAULT_COLOR;
   }
   $('undo').disabled = !model.undoStack.length;

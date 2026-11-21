@@ -151,6 +151,8 @@
         <div class="card-body">
           <label><span id="sel-size-label" data-i18n="f.selected">Selected</span> <output id="sel-size"></output></label>
           <label id="sel-row-color"><span data-i18n="f.color">Color</span> <input id="sel-color" type="color" /></label>
+          <label id="sel-row-smooth" data-i18n-title="f.smooth.tip"><span data-i18n="f.smooth">Smooth</span> <output id="sel-smooth-value"></output></label>
+          <input id="sel-smooth" type="range" min="0" max="90" step="1" data-i18n-title="f.smooth.tip" />
           <button id="sel-reverse" data-i18n="btn.reverse" data-i18n-title="btn.reverse.tip">Reverse faces</button>
           <button id="sel-delete" class="danger" data-i18n="btn.delete">Delete</button>
         </div>
@@ -223,7 +225,7 @@
           <li><span data-i18n="help.deselect">Deselect</span><span class="k"><kbd>Esc</kbd></span></li>
           <li><span data-i18n="help.undoRedo">Undo / redo</span><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Z</kbd></span>&nbsp;<span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Y</kbd></span></li>
           </ul>
-          <p class="tip" data-i18n="help.editingTip">Change the colour of the selected faces in the Selection card. Deleting a face keeps its edges; deleting the edge between two flat faces merges them. Back faces show in their own colour (Rendering card); Reverse faces turns them around.</p>
+          <p class="tip" data-i18n="help.editingTip">Change the colour of the selected faces in the Selection card. Deleting a face keeps its edges; deleting the edge between two flat faces merges them. Back faces show in their own colour (Rendering card); Reverse faces turns them around. Smooth blends the shading across edges where faces meet at less than its angle (a hexagon becomes round); circles with more than 12 sides come out smooth.</p>
         </section>
         <section>
           <h4 data-i18n="help.camera">Camera &amp; views</h4>

@@ -17,6 +17,9 @@ import * as THREE from 'three';
  */
 
 export const EPS = 1e-4; // 0.1 mm: points / planes closer than this are the same
+// A pulled-up circle's sides are smoothed when neighbouring sides meet at less than this
+// (so a 48-sided circle comes out round, a hexagon stays faceted).
+export const AUTO_SMOOTH_DEG = 30;
 const UP = new THREE.Vector3(0, 1, 0);
 const X = new THREE.Vector3(1, 0, 0);
 
@@ -720,10 +723,15 @@ export class Mesh {
         const top = this.edgeBetween(moved.get(a), moved.get(b));
         if (top != null && curve) this.edges.get(top).curve = topCurve(curve);
         for (const e of [this.edgeBetween(a, b), top, this.edgeBetween(a, moved.get(a))]) if (e != null) touched.add(e);
-        // Between two segments of the same curve the side is smooth.
-        const prev = edgeProps.get(`${l[(i - 1 + l.length) % l.length]}>${a}`);
+        // Between two segments of the same curve that meet at a shallow angle, the side is smooth.
+        const before = l[(i - 1 + l.length) % l.length];
+        const prev = edgeProps.get(`${before}>${a}`);
         const vert = this.edgeBetween(a, moved.get(a));
-        if (vert != null && curve && prev === curve) this.edges.get(vert).soft = true;
+        if (vert != null && curve && prev === curve) {
+          const d1 = A.clone().sub(this.vertices.get(before)).normalize(), d2 = B.clone().sub(A).normalize();
+          const turn = THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(d1.dot(d2), -1, 1)));
+          if (turn < AUTO_SMOOTH_DEG - 0.01) this.edges.get(vert).soft = true; // (tolerance: exactly 30° stays faceted)
+        }
       }
     }
     const capLoops = loops.map((l) => l.map((v) => moved.get(v)));
@@ -784,6 +792,29 @@ export class Mesh {
     const faces = new Set();
     for (const e of edges) this.facesOfEdge(e).forEach((f) => faces.add(f));
     return { faces, edges };
+  }
+
+  /** Angle (degrees) between the two faces on an edge; null unless it has exactly two. */
+  edgeAngle(eid) {
+    const fs = this.facesOfEdge(eid);
+    if (fs.length !== 2) return null;
+    const d = THREE.MathUtils.clamp(this.faceNormal(fs[0]).dot(this.faceNormal(fs[1])), -1, 1);
+    return THREE.MathUtils.radToDeg(Math.acos(d));
+  }
+
+  /**
+   * Smooth the given edges where their two faces meet at less than `maxDeg` (hidden, shading
+   * blends across); harden the rest. 0 = all hard.
+   */
+  setSmoothing(edgeIds, maxDeg) {
+    for (const id of edgeIds) {
+      const e = this.edges.get(id);
+      if (!e) continue;
+      const a = this.edgeAngle(id);
+      if (a != null && a < maxDeg - 0.01) e.soft = true;
+      else delete e.soft;
+    }
+    this.changed();
   }
 
   /** The edges of the curve (drawn circle) edge `eid` belongs to; just `eid` if none. */
