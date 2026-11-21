@@ -221,6 +221,15 @@ export class Mesh {
 
   deleteFace(id) { if (this.faces.delete(id)) this.changed(); }
 
+  /** Turn faces around (their front becomes the back). */
+  reverseFaces(ids) {
+    for (const id of ids) {
+      const f = this.faces.get(id);
+      if (f) f.loops = f.loops.map((l) => [...l].reverse());
+    }
+    this.changed();
+  }
+
   /** Newell normal (not normalised: length = 2 × area). */
   loopNormal(loop) {
     const n = new THREE.Vector3();

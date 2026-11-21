@@ -151,12 +151,45 @@ const faceMat = new THREE.MeshStandardMaterial({
 });
 // Faces lying on the ground: lifted instead (an offset would let the grid through at shallow angles).
 const groundFaceMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide });
+
+// Back faces can show in their own colour (so a face turned the wrong way stands out), and
+// selected faces are tinted in the shader (on both sides). Shared by both face materials.
+const faceUniforms = {
+  uBackOn: { value: 1 },
+  uBackColor: { value: new THREE.Color('#a9b6c8') },
+  uSelectTint: { value: new THREE.Color(0x2a6df4) },
+};
+for (const mat of [faceMat, groundFaceMat]) {
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, faceUniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aSelected;\nvarying float vSelected;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSelected = aSelected;')
+      // Shadow normal bias along the side we look at (faces are two-sided; seen from the
+      // back, the stored normal points away and the bias would cause shadow acne).
+      .replace('#include <shadowmap_vertex>', [
+        'if (dot(transformedNormal, isOrthographic ? vec3(0.0, 0.0, 1.0) : -mvPosition.xyz) < 0.0) transformedNormal = -transformedNormal;',
+        '#include <shadowmap_vertex>',
+      ].join('\n'));
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uBackOn;\nuniform vec3 uBackColor;\nuniform vec3 uSelectTint;\nvarying float vSelected;')
+      .replace('#include <color_fragment>', [
+        '#include <color_fragment>',
+        'if (uBackOn > 0.5 && !gl_FrontFacing) diffuseColor.rgb = uBackColor;',
+        'diffuseColor.rgb = mix(diffuseColor.rgb, uSelectTint, vSelected * 0.45);',
+      ].join('\n'));
+  };
+}
+
+/** Back face colouring (from the Rendering settings). */
+export function setBackFaces({ visible, color }) {
+  faceUniforms.uBackOn.value = visible ? 1 : 0;
+  faceUniforms.uBackColor.value.set(color);
+}
 // Thin dark lines along every edge, so faces that shade alike stay distinguishable.
 const edgeMat = new THREE.LineBasicMaterial({ color: 0x2b2d31, transparent: true, opacity: 0.35, depthWrite: false });
 // Edges without faces (lines): always clearly visible.
 const lineMat = new THREE.LineBasicMaterial({ color: 0x2b2d31 });
-// Selected faces are tinted towards this (an overlay would fight the faces in depth).
-const SELECT_TINT = new THREE.Color(0x2a6df4);
 // Selected edges: thick (plain WebGL lines are always 1 px), drawn over the normal edge line.
 const selEdgeMat = new LineMaterial({ color: 0x2a6df4, linewidth: 3.5, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 
@@ -293,6 +326,12 @@ export class Model {
     this.sync(false);
   }
 
+  /** Turn the selected faces around (front ↔ back), one undo step. */
+  reverseSelection() {
+    const faces = this.selectedFaces;
+    if (faces.length) this.edit((m) => m.reverseFaces(faces));
+  }
+
   /** Set the colour of the selected faces as one undo step. */
   commitColor(color) {
     // Put the previewed colours back first, so the undo step holds the old ones.
@@ -415,7 +454,8 @@ export class Model {
       }
     }
 
-    const buckets = { raised: { pos: [], nor: [], col: [], ids: [] }, normal: { pos: [], nor: [], col: [], ids: [] } };
+    const bucket = () => ({ pos: [], nor: [], col: [], sel: [], ids: [] });
+    const buckets = { raised: bucket(), normal: bucket() };
     const color = new THREE.Color();
     for (const [id, f] of m.faces) {
       const n = normals.get(id);
@@ -425,13 +465,15 @@ export class Model {
       const g = find(id);
       const soft = groupSize.get(g) > 1;
       color.set(f.color);
-      if (this.selection.has(`f${id}`)) color.lerp(SELECT_TINT, 0.45);
+      // Selected faces are tinted in the shader (an overlay would fight the faces in depth).
+      const selected = this.selection.has(`f${id}`) ? 1 : 0;
       for (const tri of m.faceTriangles(id)) {
         tri.pts.forEach((p, k) => {
           b.pos.push(p.x, p.y + lift, p.z);
           const vn = soft ? smooth.get(`${g}|${tri.ids[k]}`).clone().normalize() : n;
           b.nor.push(vn.x, vn.y, vn.z);
           b.col.push(color.r, color.g, color.b);
+          b.sel.push(selected);
         });
         b.ids.push(id);
       }
@@ -443,6 +485,7 @@ export class Model {
       geo.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
       geo.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3));
       geo.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
+      geo.setAttribute('aSelected', new THREE.Float32BufferAttribute(b.sel, 1));
       geo.computeBoundingSphere();
       const mesh = new THREE.Mesh(geo, key === 'raised' ? groundFaceMat : faceMat);
       mesh.castShadow = key !== 'raised';

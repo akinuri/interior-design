@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { t } from './i18n.js';
-import { setEdgeLines } from './model.js';
+import { setEdgeLines, setBackFaces } from './model.js';
 
 // v3: earlier versions stored every value (defaults included), which pinned stale defaults.
 const STORAGE_KEY = 'interior-design.scene.v3';
@@ -27,6 +27,8 @@ const DEFAULTS = {
   edges: true,
   edgeStrength: 0.35,
   viewShading: 0.5,
+  backFaces: true, // back faces in their own colour (SketchUp-like)
+  backColor: '#a9b6c8',
   ambientOcclusion: 0.8,
   aoRadius: 0.6,
   envLight: 0.45,
@@ -71,6 +73,8 @@ const FIELDS = [
   { key: 'edges', label: 's.edges', type: 'check' },
   { key: 'edgeStrength', label: 's.edgeStrength', type: 'range', min: 0, max: 1, step: 0.05 },
   { key: 'viewShading', label: 's.viewShading', type: 'range', min: 0, max: 1, step: 0.05 },
+  { key: 'backFaces', label: 's.backFaces', type: 'check' },
+  { key: 'backColor', label: 's.backColor', type: 'color' },
   { heading: 's.light' },
   { key: 'envLight', label: 's.envLight', type: 'range', min: 0, max: 2, step: 0.05, realism: true },
   { key: 'exposure', label: 's.exposure', type: 'range', min: 0.3, max: 2, step: 0.05 },
@@ -127,6 +131,7 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
     skyLight.intensity = (flat + sunToSky) * (1 - 0.45 * v.viewShading);
     headLight.intensity = 1.5 * v.viewShading;
     setEdgeLines({ visible: v.edges, opacity: v.edgeStrength });
+    setBackFaces({ visible: v.backFaces, color: v.backColor });
     sun.intensity = v.sun ? v.sunLight : 0; // Sun off: only sky ambient + camera light
     const az = THREE.MathUtils.degToRad(v.sunAzimuth);
     const el = THREE.MathUtils.degToRad(v.sunElevation);
@@ -145,6 +150,7 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
       const needs = [];
       if (f.realism) needs.push(v.realism);
       if (f.key === 'edgeStrength') needs.push(v.edges);
+      if (f.key === 'backColor') needs.push(v.backFaces);
       if (f.key === 'shadows' || f.key === 'shadowSoftness') needs.push(v.sun);
       if (f.key === 'shadowSoftness') needs.push(v.shadows);
       if (f.key === 'background') needs.push(!v.skyVisible);

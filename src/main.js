@@ -264,6 +264,7 @@ window.addEventListener('keydown', (e) => {
 
 // --- selection card ---
 $('sel-delete').addEventListener('click', () => model.deleteSelection());
+$('sel-reverse').addEventListener('click', () => model.reverseSelection());
 $('sel-close').addEventListener('click', () => model.select([]));
 
 $('set-color').addEventListener('input', (e) => (settings.color = e.target.value));
@@ -298,7 +299,7 @@ function refreshUI() {
     $('sel-size-label').dataset.i18n = key;
     $('sel-size-label').textContent = t(key);
     $('sel-size').textContent = text;
-    $('sel-row-color').hidden = !faces.length;
+    $('sel-row-color').hidden = $('sel-reverse').hidden = !faces.length;
     if (faces.length && !pickingColor) $('sel-color').value = model.mesh.faces.get(faces[0]).color ?? DEFAULT_COLOR;
   }
   $('undo').disabled = !model.undoStack.length;
