@@ -87,7 +87,7 @@ button {
   white-space: nowrap;
 }
 
-button:hover { background: #f0eee9; }
+button:hover { background: var(--card-header-hover); } /* neutral, see-through: right on the frosted bars */
 button:disabled { opacity: 0.4; cursor: default; background: transparent; }
 button.active { background: var(--accent); color: #fff; }
 button.active kbd { color: rgba(255, 255, 255, 0.75); border-color: rgba(255, 255, 255, 0.4); }
