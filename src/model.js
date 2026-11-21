@@ -3,13 +3,14 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { Mesh, shapesToMesh } from './mesh.js';
+import { createMeasureView } from './measurements.js';
 
 /*
  * The scene model: edges and faces (see mesh.js), with undo history, rendering,
  * picking and the selection.
  *
  * Selection = a set of keys: 'f<id>' (face) and 'e<id>' (edge) of the mesh being edited,
- * and 'g<id>' (a whole group, outside group editing).
+ * 'g<id>' (a whole group, outside group editing) and 'm<id>' (a measurement).
  *
  * Groups: pieces of geometry kept apart (they don't stick to the rest). Each has its own
  * mesh. Clicking a group selects all of it; while editing one (enterGroup), `mesh` is the
@@ -261,6 +262,9 @@ export class Model {
     this.groups = new Map(); // id → { mesh }
     this.nextGroupId = 1;
     this.activeGroup = null; // id of the group being edited, or null
+    this.measurements = []; // { id, a, b } (Measure tool), points in metres
+    this.nextMeasureId = 1;
+    this.measureView = createMeasureView(scene);
     this.selection = new Set();
     this.undoStack = [];
     this.redoStack = [];
@@ -293,7 +297,7 @@ export class Model {
     return n;
   }
 
-  get isEmpty() { return this.root.edges.size === 0 && this.groups.size === 0; }
+  get isEmpty() { return this.root.edges.size === 0 && this.groups.size === 0 && !this.measurements.length; }
 
   // --- history ---
   // Each step stores the geometry plus, via `extraState`, the person. Extra state is
@@ -301,7 +305,10 @@ export class Model {
   extraState = { get: () => null, set: () => {} };
 
   snapshot(extra) {
-    const data = { root: this.root.toData(), groups: [...this.groups].map(([id, g]) => [id, g.mesh.toData()]), active: this.activeGroup };
+    const data = {
+      root: this.root.toData(), groups: [...this.groups].map(([id, g]) => [id, g.mesh.toData()]), active: this.activeGroup,
+      measurements: this.measurements.map((m) => [m.id, m.a.toArray(), m.b.toArray()]),
+    };
     return { data: JSON.stringify(data), extraValue: this.extraState.get(), extra };
   }
   checkpoint({ extra = false } = {}) {
@@ -316,6 +323,8 @@ export class Model {
     this.groups = new Map(data.groups.map(([id, g]) => [id, { mesh: Mesh.fromData(g) }]));
     this.nextGroupId = Math.max(this.nextGroupId, ...this.groups.keys(), 0) + 1;
     this.activeGroup = this.groups.has(data.active) ? data.active : null;
+    this.measurements = data.measurements.map(([id, a, b]) => ({ id, a: new THREE.Vector3(...a), b: new THREE.Vector3(...b) }));
+    this.nextMeasureId = Math.max(this.nextMeasureId, ...this.measurements.map((m) => m.id), 0) + 1;
     this.selection.clear();
     if (step.extra) this.extraState.set(step.extraValue);
     this.sync();
@@ -349,6 +358,7 @@ export class Model {
     this.root = new Mesh();
     this.groups.clear();
     this.activeGroup = null;
+    this.measurements = [];
     this.selection.clear();
     this.sync();
   }
@@ -366,7 +376,9 @@ export class Model {
   /** Plain data for saving: the geometry outside groups, and each group's. */
   toData() {
     const groups = [...this.groups.values()].map((g) => ({ geometry: g.mesh.toData() }));
-    return { geometry: this.root.toData(), ...(groups.length ? { groups } : {}) };
+    const r = (v) => v.toArray().map((x) => Math.round(x * 1e6) / 1e6);
+    const measurements = this.measurements.map((m) => ({ a: r(m.a), b: r(m.b) }));
+    return { geometry: this.root.toData(), ...(groups.length ? { groups } : {}), ...(measurements.length ? { measurements } : {}) };
   }
 
   /** Load saved data (any version; groups since they exist). */
@@ -379,7 +391,28 @@ export class Model {
       if (mesh.edges.size) this.groups.set(this.nextGroupId++, { mesh });
     }
     this.activeGroup = null;
+    const point = (p) => (Array.isArray(p) && p.length === 3 && p.every(Number.isFinite) ? new THREE.Vector3(...p) : null);
+    this.measurements = [];
+    this.nextMeasureId = 1;
+    for (const m of Array.isArray(data?.measurements) ? data.measurements : []) {
+      const a = point(m?.a), b = point(m?.b);
+      if (a && b) this.measurements.push({ id: this.nextMeasureId++, a, b });
+    }
   }
+
+  // --- measurements ---
+  get selectedMeasurements() { return [...this.selection].filter((k) => k[0] === 'm').map((k) => +k.slice(1)); }
+
+  /** Keep a measurement from a to b (one undo step). */
+  addMeasurement(a, b) {
+    if (a.distanceTo(b) < 1e-3) return;
+    this.checkpoint();
+    this.measurements.push({ id: this.nextMeasureId++, a: a.clone(), b: b.clone() });
+    this.sync();
+  }
+
+  /** The measurement under the mouse (screen coords like pickEdge), or null. */
+  pickMeasurement(ndc, camera, size) { return this.measureView.pick(ndc, camera, size); }
 
   // --- groups ---
   get selectedGroups() { return [...this.selection].filter((k) => k[0] === 'g').map((k) => +k.slice(1)); }
@@ -449,15 +482,18 @@ export class Model {
 
   selectAll() {
     const groups = this.activeGroup == null ? [...this.groups.keys()].map((g) => `g${g}`) : [];
-    this.select([...[...this.mesh.faces.keys()].map((f) => `f${f}`), ...[...this.mesh.edges.keys()].map((e) => `e${e}`), ...groups]);
+    const measures = this.activeGroup == null ? this.measurements.map((m) => `m${m.id}`) : [];
+    this.select([...[...this.mesh.faces.keys()].map((f) => `f${f}`), ...[...this.mesh.edges.keys()].map((e) => `e${e}`), ...groups, ...measures]);
   }
 
   deleteSelection() {
     if (!this.selection.size) return;
     const faces = this.selectedFaces, edges = this.selectedEdges, groups = this.selectedGroups;
+    const measures = new Set(this.selectedMeasurements);
     this.selection.clear();
     this.checkpoint();
     for (const id of groups) this.groups.delete(id);
+    this.measurements = this.measurements.filter((m) => !measures.has(m.id));
     if (faces.length || edges.length) this.mesh.erase(faces, edges);
     this.sync();
   }
@@ -666,7 +702,8 @@ export class Model {
     const active = this.mesh;
     for (const k of [...this.selection]) {
       const id = +k.slice(1);
-      const ok = k[0] === 'f' ? active.faces.has(id) : k[0] === 'e' ? active.edges.has(id) : this.activeGroup == null && this.groups.has(id);
+      const ok = k[0] === 'f' ? active.faces.has(id) : k[0] === 'e' ? active.edges.has(id)
+        : k[0] === 'm' ? this.measurements.some((m) => m.id === id) : this.activeGroup == null && this.groups.has(id);
       if (!ok) this.selection.delete(k);
     }
     for (const obj of [...this.group.children]) { obj.geometry?.dispose(); this.group.remove(obj); }
@@ -695,6 +732,8 @@ export class Model {
       lines.userData.noAO = true;
       this.group.add(lines);
     }
+
+    this.measureView.set(this.measurements, new Set(this.selectedMeasurements));
 
     if (save) this.save();
     this.listeners.forEach((fn) => fn());

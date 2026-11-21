@@ -354,6 +354,11 @@ $('sel-smooth').addEventListener('change', (e) => {
 /** Selection summary: area of one face, length of one edge, else counts. */
 function selectionSummary(faces, edges) {
   const m = model.mesh;
+  const measures = model.selectedMeasurements;
+  if (measures.length === 1 && !faces.length && !edges.length && !model.selectedGroups.length) {
+    const it = model.measurements.find((x) => x.id === measures[0]);
+    return ['f.length', formatLength(it.a.distanceTo(it.b))];
+  }
   if (faces.length === 1 && !edges.length) return ['f.area', formatArea(m.faceArea(faces[0]))];
   // One edge, or the edges of one curve (a circle): its length.
   const curve = m.edges.get(edges[0])?.curve;
@@ -363,14 +368,16 @@ function selectionSummary(faces, edges) {
   }
   const part = (n, one, many) => (n ? [t(n === 1 ? one : many, { n })] : []);
   const groups = model.selectedGroups.length;
-  return ['f.selected', [...part(groups, 'sel.group', 'sel.groups'), ...part(faces.length, 'sel.face', 'sel.faces'), ...part(edges.length, 'sel.edge', 'sel.edges')].join(', ')];
+  return ['f.selected', [...part(groups, 'sel.group', 'sel.groups'), ...part(faces.length, 'sel.face', 'sel.faces'), ...part(edges.length, 'sel.edge', 'sel.edges'),
+    ...part(measures.length, 'sel.measure', 'sel.measures')].join(', ')];
 }
 
 function refreshUI() {
   const faces = model.selectedFaces, edges = model.selectedEdges, groups = model.selectedGroups;
+  const anything = model.selection.size > 0;
   $('group-bar').hidden = model.activeGroup == null;
-  $('sel-panel').hidden = !faces.length && !edges.length && !groups.length;
-  if (faces.length || edges.length || groups.length) {
+  $('sel-panel').hidden = !anything;
+  if (anything) {
     $('sel-group').hidden = model.activeGroup != null || (!faces.length && !edges.length);
     $('sel-ungroup').hidden = !groups.length;
     $('sel-editgroup').hidden = groups.length !== 1;
@@ -730,6 +737,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'r') tools.setTool('rect');
   else if (k === 'c') tools.setTool('circle');
   else if (k === 'p') tools.setTool('pushpull');
+  else if (k === 'm') tools.setTool('measure');
   else if (k === 'u') tools.setTool('person');
   else if (k === 'e') { if (!person.eye) setParallel(false); person.toggleEye(); }
   else if (k === 't') setStdView('top');
@@ -816,6 +824,7 @@ function frame() {
   ground.update(camera);
   updateMeasureLabel();
   orbitCenter.update(camera, controls.target, viewport.clientHeight, !person.eye);
+  model.measureView.update(camera, viewport.clientHeight);
   updateSideGrid();
   pipeline.render(camera);
 }

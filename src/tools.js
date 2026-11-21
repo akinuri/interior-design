@@ -167,7 +167,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   }
 
   const drawing = () => chain.length > 0 || !!anchor;
-  const isDrawTool = () => tool === 'line' || tool === 'rect' || tool === 'circle';
+  const isDrawTool = () => tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'measure';
 
   function updateCursor(e) {
     cursor = null;
@@ -175,9 +175,17 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       const raw = rayToPlane(e, GROUND);
       if (raw) cursor = Object.assign(raw, { kind: 'free' });
     } else if (isDrawTool()) {
-      hoverPlane = plane ?? planeUnder(e);
+      // (Measure: the plane under the cursor each time, so points can be on different faces.)
+      hoverPlane = (tool === 'measure' ? null : plane) ?? planeUnder(e);
       const raw = rayToPlane(e, hoverPlane);
       if (raw) cursor = snap(raw, hoverPlane, tool === 'line' ? chain.at(-1) : null);
+      if (cursor && tool === 'measure' && anchor && shift) {
+        // Shift: straight along the main axis (X, Y or Z) it's closest to.
+        const d = cursor.clone().sub(anchor);
+        const axis = ['x', 'y', 'z'].reduce((best, k) => (Math.abs(d[k]) > Math.abs(d[best]) ? k : best), 'x');
+        cursor = Object.assign(anchor.clone(), { kind: 'angle' });
+        cursor[axis] += d[axis];
+      }
     } else if (tool === 'pushpull') {
       if (op) updateOp(e);
       else {
@@ -251,6 +259,13 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       label.text = t('tool.sides', { n: sidesTyped || settings.circleSides }); // live, as digits are typed
     }
 
+    if (tool === 'measure' && anchor && cursor) {
+      setPoints(preview, [anchor, cursor]);
+      preview.visible = true;
+      label.pos = anchor.clone().add(cursor).multiplyScalar(0.5);
+      label.text = fmt(anchor.distanceTo(cursor));
+    }
+
     if (tool === 'circle' && anchor && cursor) {
       const radius = anchor.distanceTo(cursor);
       if (radius > 1e-4) {
@@ -319,6 +334,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     } else if (tool === 'circle') {
       const radius = anchor.distanceTo(c);
       if (radius > 0.01) model.edit((m) => m.addLoop(circlePoints(anchor, radius), plane, { ...drawOpts(), curve: true }));
+    } else if (tool === 'measure') {
+      model.addMeasurement(anchor, c);
     }
     resetDraw();
   }
@@ -506,6 +523,13 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   }
 
   function selectAt(e) {
+    // A measurement (its line or label) comes first: it's drawn on top of everything.
+    {
+      setRay(e);
+      const r = canvas.getBoundingClientRect();
+      const id = model.pickMeasurement(ndc, getCamera(), { x: r.width, y: r.height });
+      if (id != null) { model.select([`m${id}`], e.ctrlKey || e.metaKey ? 'add' : e.shiftKey ? 'toggle' : 'replace'); return; }
+    }
     const { edgeHit, faceHit } = pickAt(e);
     const m = model.mesh;
     // A closed group: click selects all of it, double-click opens it for editing.
@@ -554,7 +578,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       person.place(cursor.x, cursor.z);
       aiming = { x: cursor.x, z: cursor.z };
       model.sync(false); // refresh undo button state
-    } else if ((tool === 'rect' || tool === 'circle') && !anchor && cursor) {
+    } else if ((tool === 'rect' || tool === 'circle' || tool === 'measure') && !anchor && cursor) {
       anchor = cursor.clone();
       plane = hoverPlane;
       anchorPress = true;
@@ -594,7 +618,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
 
     if (tool === 'line' && !moved) {
       addChainPoint(cursor);
-    } else if ((tool === 'rect' || tool === 'circle') && anchor && (moved || !anchorPress)) {
+    } else if ((tool === 'rect' || tool === 'circle' || tool === 'measure') && anchor && (moved || !anchorPress)) {
       completeShape();
     } else if (tool === 'pushpull' && op) {
       if (op.byPress && !moved) op.byPress = false; // click without drag: keep following the mouse

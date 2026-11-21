@@ -8,6 +8,7 @@ A simple 3D interior design app that runs in the browser. Draw flat shapes on an
 - **Draw**: line, rectangle and circle, on the ground or on any face (walls too). Points snap to corners, midpoints, edges and the grid.
 - **Push / Pull**: give a face depth. Pulling out adds, pushing in carves, and pushing through to the far side cuts a hole, e.g. a door: draw a rectangle on a wall, then push it through.
 - **Exact values**: type a number while drawing or pushing, then `Enter`. Lengths are in centimetres (e.g. `250` for a line, `400;300` for a rectangle); add a unit for others (`2.5m`, `25mm`).
+- **Measure**: click two points to leave a measurement (line and label) in the scene; `Shift` measures straight along an axis.
 - **Edit**: select faces and edges (double-click adds neighbours, triple-click everything connected), change their colour, or delete them. Designs from earlier versions (shapes, walls) are converted when opened.
 - **Eye view**: place a person and see the room through their eyes. Walk around with WASD.
 - **Views**: orbit, top view and parallel (orthographic) projection.
@@ -28,7 +29,7 @@ Then open the address it prints. A plain static server such as VS Code's Live Se
 
 | Action | Input |
 | --- | --- |
-| Select / Line / Rectangle / Circle / Push-Pull / Person | `V` / `L` / `R` / `C` / `P` / `U` |
+| Select / Line / Rectangle / Circle / Push-Pull / Measure / Person | `V` / `L` / `R` / `C` / `P` / `M` / `U` |
 | Orbit | Drag (Select tool) or middle-drag |
 | Pan | Right-drag |
 | Zoom | Mouse wheel |
