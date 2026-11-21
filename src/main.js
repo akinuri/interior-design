@@ -267,15 +267,16 @@ $('view-fov').addEventListener('input', (e) => setFov(parseFloat(e.target.value)
 $('view-fov').addEventListener('dblclick', () => setFov(50));
 
 // --- grid settings (persisted) ---
-const GRID_KEY = 'interior-design.grid.v1';
-const GRID_DEFAULTS = { visible: true, cell: 0.25, majorEvery: 4, opacity: 1, snap: 'cell' };
+// v2: only changed values are stored (v1 stored them all, pinning old defaults).
+const GRID_KEY = 'interior-design.grid.v2';
+const GRID_DEFAULTS = { visible: true, cell: 0.1, majorEvery: 10, opacity: 1, snap: 'cell' }; // 10 cm cells, a major line every 1 m
 const grid = { ...GRID_DEFAULTS };
-try { Object.assign(grid, JSON.parse(localStorage.getItem(GRID_KEY) ?? '{}')); } catch { /* ignore */ }
+try { Object.assign(grid, pickValid(GRID_DEFAULTS, JSON.parse(localStorage.getItem(GRID_KEY) ?? '{}'))); } catch { /* ignore */ }
 
 function applyGrid() {
   ground.setOptions(grid);
   settings.snap = grid.snap === 'off' ? 0 : grid.snap === 'half' ? grid.cell / 2 : grid.cell;
-  try { localStorage.setItem(GRID_KEY, JSON.stringify(grid)); } catch { /* ignore */ }
+  try { localStorage.setItem(GRID_KEY, JSON.stringify(changedFrom(GRID_DEFAULTS, grid) ?? {})); } catch { /* ignore */ }
 }
 
 function syncGridInputs() {
@@ -292,6 +293,7 @@ $('grid-cell').addEventListener('change', (e) => { grid.cell = parseFloat(e.targ
 $('grid-major').addEventListener('change', (e) => { grid.majorEvery = parseInt(e.target.value, 10); applyGrid(); });
 $('grid-opacity').addEventListener('input', (e) => { grid.opacity = parseFloat(e.target.value); applyGrid(); });
 $('grid-snap').addEventListener('change', (e) => { grid.snap = e.target.value; applyGrid(); });
+$('grid-reset').addEventListener('click', () => { Object.assign(grid, GRID_DEFAULTS); syncGridInputs(); applyGrid(); });
 applyGrid();
 // G toggles the grid
 window.addEventListener('keydown', (e) => {
