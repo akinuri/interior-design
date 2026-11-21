@@ -326,7 +326,6 @@ function refreshUI() {
 model.onChange(refreshUI);
 
 // --- camera views ---
-let topView = false;
 let fly = null;
 /**
  * Animate the orbit camera; `zoom` (optional) also eases the parallel camera's zoom.
@@ -336,17 +335,45 @@ function flyTo(position, target, zoom, { duration = 0.6, easeInOut = false } = {
   fly = { p0: camera.position.clone(), p1: position, t0: controls.target.clone(), t1: target, t: 0, duration, easeInOut };
   if (zoom !== undefined && camera === ortho) Object.assign(fly, { z0: ortho.zoom, z1: zoom });
 }
-function toggleTopView() {
-  person.exitEye();
-  topView = !topView;
-  const target = controls.target.clone();
-  const d = Math.max(camera.position.distanceTo(target), 8);
-  const offset = topView ? new THREE.Vector3(0, d, 0.001) : new THREE.Vector3(1, 1.1, 1.4).normalize().multiplyScalar(d);
-  flyTo(target.clone().add(offset), target);
-  $('view').classList.toggle('active', topView);
-  setTip($('view'), t(topView ? 'top.view.back' : 'top.view.tip'));
+// Standard views: the camera looks at the orbit centre from this side (same distance).
+// A tiny sideways nudge on top / bottom keeps the orbit controls' "up" well defined.
+const STD_VIEWS = {
+  top: new THREE.Vector3(0, 1, 0.0005),
+  bottom: new THREE.Vector3(0, -1, 0.0005),
+  left: new THREE.Vector3(-1, 0, 0),
+  right: new THREE.Vector3(1, 0, 0),
+  front: new THREE.Vector3(0, 0, 1),
+  back: new THREE.Vector3(0, 0, -1),
+};
+let stdView = null; // the standard view we're in (null = free view)
+let viewBefore = null; // where to go back to when the active view's button is clicked again
+const viewButtons = document.querySelectorAll('[data-view]');
+function markStdView(name) {
+  stdView = name;
+  viewButtons.forEach((b) => b.classList.toggle('active', b.dataset.view === name));
 }
-$('view').addEventListener('click', toggleTopView);
+function setStdView(name) {
+  person.exitEye();
+  const target = controls.target.clone();
+  if (stdView === name && viewBefore) {
+    // Same button again: back to the free view we came from.
+    flyTo(viewBefore.position, viewBefore.target);
+    viewBefore = null;
+    markStdView(null);
+    return;
+  }
+  if (!stdView) viewBefore = { position: camera.position.clone(), target };
+  const d = Math.max(camera.position.distanceTo(target), 8);
+  flyTo(target.clone().addScaledVector(STD_VIEWS[name].clone().normalize(), d), target);
+  markStdView(name);
+}
+viewButtons.forEach((b) => b.addEventListener('click', () => setStdView(b.dataset.view)));
+// Orbiting away from a standard view leaves it (panning / zooming keep it).
+controls.addEventListener('end', () => {
+  if (!stdView || fly) return;
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  if (dir.dot(STD_VIEWS[stdView].clone().normalize()) < 0.9999) { markStdView(null); viewBefore = null; }
+});
 
 /**
  * Home: default 3D angle, framing everything in the scene (shapes, lines + person).
@@ -354,9 +381,8 @@ $('view').addEventListener('click', toggleTopView);
  */
 function homeView() {
   person.exitEye();
-  topView = false;
-  $('view').classList.remove('active');
-  setTip($('view'), t('top.view.tip'));
+  markStdView(null);
+  viewBefore = null;
 
   const box = model.boundingBox();
   const p = person.getState();
@@ -487,9 +513,8 @@ function setScene(data) {
   controls.update();
   setParallel(data.view?.parallel === true);
   setOrbitCenter(data.view?.orbitCenter !== false);
-  topView = false;
-  $('view').classList.remove('active');
-  setTip($('view'), t('top.view.tip'));
+  markStdView(null);
+  viewBefore = null;
   return count;
 }
 
@@ -514,7 +539,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'p') tools.setTool('pushpull');
   else if (k === 'u') tools.setTool('person');
   else if (k === 'e') { if (!person.eye) setParallel(false); person.toggleEye(); }
-  else if (k === 't') toggleTopView();
+  else if (k === 't') setStdView('top');
   else if (k === 'h') homeView();
   else if (k === 'o') setParallel(camera !== ortho);
   else if (k === 'enter') tools.finish();
@@ -733,10 +758,7 @@ $('lang-btn').addEventListener('click', () => {
   const codes = Object.keys(LANGUAGES);
   setLang(codes[(codes.indexOf(getLang()) + 1) % codes.length]); // cycle EN → TR → …
 });
-onLangChange(() => {
-  showLang();
-  setTip($('view'), t(topView ? 'top.view.back' : 'top.view.tip'));
-});
+onLangChange(showLang);
 applyTranslations(); // static markup + generated controls, before tooltips take over the titles
 showLang();
 
