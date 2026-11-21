@@ -9,8 +9,10 @@ export const MAX_SIDES = 360;
 /*
  * Tools
  *  - select:   click a face or edge; double-click adds its neighbours (face → its edges,
- *              edge → its faces); triple-click selects everything connected.
- *              Ctrl = add, Shift = add / remove. Left-drag still orbits.
+ *              edge → its faces); triple-click selects everything connected. Drag a box:
+ *              left to right = what's fully inside, right to left = what it touches.
+ *              Ctrl = add, Shift = add / remove.
+ *  - orbit:    left-drag turns the view; a click selects (as with Select).
  *  - line:     click points; each click adds an edge. Closing a loop makes a face;
  *              a line across a face splits it. Enter / double-click / right-click / Esc stops.
  *  - rect:     two opposite corners (click-click or drag). Shift = square.
@@ -55,6 +57,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   let press = null; // { x, y, button } of the current mouse press
   let lastMoved = false; // the last press was a drag (so its click isn't a selection)
   let aiming = null; // person tool: placed point; drag sets facing
+  let boxStart = null; // Select tool: where a selection box drag started { x, y } (client px)
   let shift = false;
   let lastPointer = null;
   const toolListeners = new Set();
@@ -84,6 +87,12 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   const marker = new THREE.Mesh(new THREE.RingGeometry(0.07, 0.12, 32).rotateX(-Math.PI / 2), markerMat);
   marker.renderOrder = 11;
   const helpers = [preview, fill, hiFill, hiLine, marker];
+
+  // Selection box (Select tool): solid = fully inside (dragged left to right), dashed = touching.
+  const boxEl = document.createElement('div');
+  boxEl.className = 'select-box';
+  boxEl.hidden = true;
+  canvas.parentElement.append(boxEl);
   // Overlays: not pickable, and kept out of the AO pass (it would shade them like solid surfaces).
   for (const h of helpers) { h.visible = false; h.raycast = () => {}; h.userData.noAO = true; scene.add(h); }
 
@@ -683,7 +692,27 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     const keys = [...[...faces].map((f) => `f${f}`), ...[...edges].map((x) => `e${x}`)];
     model.select(keys, e.detail >= 2 && mode !== 'replace' ? 'add' : mode);
   }
-  canvas.addEventListener('click', (e) => { if (tool === 'select' && !lastMoved) selectAt(e); });
+  canvas.addEventListener('click', (e) => { if ((tool === 'select' || tool === 'orbit') && !lastMoved) selectAt(e); });
+
+  // --- selection box (Select tool) ---
+  function boxRect(e) {
+    const r = canvas.getBoundingClientRect();
+    const x0 = Math.min(boxStart.x, e.clientX) - r.left, x1 = Math.max(boxStart.x, e.clientX) - r.left;
+    const y0 = Math.min(boxStart.y, e.clientY) - r.top, y1 = Math.max(boxStart.y, e.clientY) - r.top;
+    return { x0, y0, x1, y1, crossing: e.clientX < boxStart.x, size: { x: r.width, y: r.height } };
+  }
+  function showBox(e) {
+    const b = boxRect(e);
+    Object.assign(boxEl.style, { left: `${b.x0}px`, top: `${b.y0}px`, width: `${b.x1 - b.x0}px`, height: `${b.y1 - b.y0}px` });
+    boxEl.classList.toggle('crossing', b.crossing);
+    boxEl.hidden = false;
+  }
+  function finishBox(e) {
+    const b = boxRect(e);
+    boxEl.hidden = true;
+    const keys = model.keysInBox(b, getCamera(), b.size, b.crossing);
+    model.select(keys, e.ctrlKey || e.metaKey ? 'add' : e.shiftKey ? 'toggle' : 'replace');
+  }
 
   // --- pointer events ---
   // Capture phase on the parent so we run before OrbitControls and can block it.
@@ -692,6 +721,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     press = { x: e.clientX, y: e.clientY, button: e.button };
     updateCursor(e);
     if (e.button !== 0) return;
+    // Select tool: a drag draws a selection box (touch keeps one-finger orbiting).
+    if (tool === 'select' && e.pointerType !== 'touch' && !person.eye) boxStart = { x: e.clientX, y: e.clientY };
     if (tool === 'person' && cursor) {
       model.checkpoint({ extra: true }); // placing / moving the person is an undo step
       person.place(cursor.x, cursor.z);
@@ -713,6 +744,10 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
 
   window.addEventListener('pointermove', (e) => {
     lastPointer = e;
+    // Orbiting (left-drag with Orbit, or middle-drag): a grabbing hand while it lasts.
+    if (press && (press.button === 1 || (press.button === 0 && tool === 'orbit'))
+      && Math.hypot(e.clientX - press.x, e.clientY - press.y) > CLICK_TOLERANCE_PX) canvas.style.cursor = 'grabbing';
+    if (boxStart && Math.hypot(e.clientX - boxStart.x, e.clientY - boxStart.y) > CLICK_TOLERANCE_PX) showBox(e);
     if (!aiming && !op && !mv && !drawing() && e.target !== canvas) return;
     updateCursor(e);
     if (aiming && cursor && Math.hypot(aiming.x - cursor.x, aiming.z - cursor.z) > 0.15) person.face(Math.atan2(cursor.z - aiming.z, cursor.x - aiming.x));
@@ -725,6 +760,11 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     lastMoved = moved;
     const button = press.button;
     press = null;
+    canvas.style.cursor = toolCursor();
+    if (boxStart) {
+      if (!boxEl.hidden) finishBox(e);
+      boxStart = null;
+    }
 
     if (aiming) { aiming = null; person.save(); return; }
     if (button === 2 && !moved) {
@@ -778,13 +818,16 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     return busy;
   }
 
+  /** The tool's own cursor (while orbiting, a grabbing hand shows instead). */
+  const toolCursor = () => ({ select: 'default', orbit: 'default', pushpull: 'ns-resize', move: 'move' }[tool] ?? 'crosshair');
+
   function setTool(t) {
     cancel();
     tool = t;
     hover = null;
-    if (t !== 'select' && t !== 'move' && model.selection.size) model.select([]); // Move works on the selection
-    controls.mouseButtons.LEFT = t === 'select' ? THREE.MOUSE.ROTATE : null;
-    canvas.style.cursor = t === 'select' ? 'default' : t === 'pushpull' ? 'ns-resize' : t === 'move' ? 'move' : 'crosshair';
+    if (!['select', 'orbit', 'move'].includes(t) && model.selection.size) model.select([]); // Move works on the selection
+    controls.mouseButtons.LEFT = t === 'orbit' ? THREE.MOUSE.ROTATE : null; // Select drags a box instead
+    canvas.style.cursor = toolCursor();
     toolListeners.forEach((fn) => fn(t));
     updatePreview();
   }

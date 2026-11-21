@@ -114,7 +114,7 @@ function saveDrawing() {
 const model = new Model(scene);
 const person = createPerson({ scene, camera: persp, controls, canvas, model });
 const tools = createTools({ getCamera: () => camera, canvas, controls, scene, model, settings, person });
-person.leftDragLooks = () => tools.tool === 'select';
+person.leftDragLooks = () => tools.tool === 'select' || tools.tool === 'orbit';
 
 // --- UI ---
 // No browser context menu anywhere (right-click pans / finishes drawing),
@@ -733,6 +733,7 @@ window.addEventListener('keydown', (e) => {
   if (mod) return;
   if (person.isMoveKey(k)) return; // WASD / arrows walk in eye view
   if (k === 'v') tools.setTool('select');
+  else if (k === 'q') tools.setTool('orbit');
   else if (k === 'l') tools.setTool('line');
   else if (k === 'r') tools.setTool('rect');
   else if (k === 'c') tools.setTool('circle');

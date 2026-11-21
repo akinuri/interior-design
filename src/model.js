@@ -411,6 +411,66 @@ export class Model {
     this.sync();
   }
 
+  /**
+   * Selection keys for a screen box { x0, y0, x1, y1 } (px): with `crossing`, everything the box
+   * touches; else only what's fully inside. Hidden things count too (like SketchUp).
+   */
+  keysInBox(box, camera, size, crossing) {
+    const toScreen = (p) => { const v = p.clone().project(camera); return { x: (v.x + 1) / 2 * size.x, y: (1 - v.y) / 2 * size.y, ok: v.z <= 1 && v.z >= -1 }; };
+    const inside = (s) => s.ok && s.x >= box.x0 && s.x <= box.x1 && s.y >= box.y0 && s.y <= box.y1;
+    // Does segment a-b cross the box? (Clip it against the box, Liang-Barsky.)
+    const crosses = (a, b) => {
+      if (!a.ok || !b.ok) return false;
+      let t0 = 0, t1 = 1;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      for (const [p, q] of [[-dx, a.x - box.x0], [dx, box.x1 - a.x], [-dy, a.y - box.y0], [dy, box.y1 - a.y]]) {
+        if (p === 0) { if (q < 0) return false; continue; }
+        const r = q / p;
+        if (p < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r);
+        if (t0 > t1) return false;
+      }
+      return true;
+    };
+    const caught = (pts, segs) => (crossing ? pts.some(inside) || segs.some(([a, b]) => crosses(a, b)) : pts.length > 0 && pts.every(inside));
+    const screenOf = (m) => { const out = new Map(); for (const [id, v] of m.vertices) out.set(id, toScreen(v)); return out; };
+    const keys = [];
+    const m = this.mesh;
+    const s = screenOf(m);
+    // Crossing: a box drawn inside a face (touching none of its edges) still touches the face.
+    const mid = { x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 };
+    const holds = (poly, pt) => {
+      if (poly.some((q) => !q.ok)) return false;
+      let inside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const a = poly[i], b = poly[j];
+        if ((a.y > pt.y) !== (b.y > pt.y) && pt.x < ((b.x - a.x) * (pt.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+      }
+      return inside;
+    };
+    for (const [id, f] of m.faces) {
+      const loops = f.loops.map((l) => l.map((v) => s.get(v)));
+      const segs = loops.flatMap((l) => l.map((p, i) => [p, l[(i + 1) % l.length]]));
+      if (caught(loops.flat(), segs) || (crossing && holds(loops[0], mid) && !loops.slice(1).some((h) => holds(h, mid)))) keys.push(`f${id}`);
+    }
+    for (const [id, e] of m.edges) {
+      if (e.soft) continue;
+      const a = s.get(e.a), b = s.get(e.b);
+      if (caught([a, b], [[a, b]])) keys.push(`e${id}`);
+    }
+    if (this.activeGroup == null) {
+      for (const [id, g] of this.groups) {
+        const gs = screenOf(g.mesh);
+        const segs = [...g.mesh.edges.values()].map((e) => [gs.get(e.a), gs.get(e.b)]);
+        if (caught([...gs.values()], segs)) keys.push(`g${id}`);
+      }
+      for (const it of this.measurements) {
+        const a = toScreen(it.a), b = toScreen(it.b);
+        if (caught([a, b], [[a, b]])) keys.push(`m${it.id}`);
+      }
+    }
+    return keys;
+  }
+
   /** The measurement under the mouse (screen coords like pickEdge), or null. */
   pickMeasurement(ndc, camera, size) { return this.measureView.pick(ndc, camera, size); }
 

@@ -31,6 +31,7 @@
     <!-- Drawing / editing tools: vertical bar on the left edge. -->
     <nav class="tools">
       <button data-tool="select" class="icon" data-i18n-title="tool.select.tip" data-i18n-aria="tool.select"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3.5 18.5 10l-6 1.8L10 18z"/><path d="m12.6 11.9 5 5.6"/></svg></button>
+      <button data-tool="orbit" class="icon" data-i18n-title="tool.orbit.tip" data-i18n-aria="tool.orbit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="12" rx="9" ry="4"/><path d="M16.5 5.5 19 8l-3 1.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg></button>
       <button data-tool="move" class="icon" data-i18n-title="tool.move.tip" data-i18n-aria="tool.move"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18"/><path d="m9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></svg></button>
       <div class="sep" aria-hidden="true"></div>
       <button data-tool="line" class="icon" data-i18n-title="tool.line.tip" data-i18n-aria="tool.line"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19 19 5"/><circle cx="5" cy="19" r="1.6" fill="currentColor"/><circle cx="19" cy="5" r="1.6" fill="currentColor"/></svg></button>
@@ -194,6 +195,7 @@
           <h4 data-i18n="help.tools">Tools (left bar)</h4>
           <ul>
           <li><span data-i18n="help.selectTool">Select</span><span class="k"><kbd>V</kbd></span></li>
+          <li><span data-i18n="help.orbitTool">Orbit</span><span class="k"><kbd>Q</kbd></span></li>
           <li><span data-i18n="help.moveTool">Move</span><span class="k"><kbd>W</kbd></span></li>
           <li><span data-i18n="help.lineTool">Line</span><span class="k"><kbd>L</kbd></span></li>
           <li><span data-i18n="help.rectTool">Rectangle</span><span class="k"><kbd>R</kbd></span></li>
@@ -244,6 +246,7 @@
           <h4 data-i18n="help.editing">Editing</h4>
           <ul>
           <li><span data-i18n="help.selectObj">Select a face or edge</span><span class="how" data-i18n="help.clickIt">click it (Select tool)</span></li>
+          <li><span data-i18n="help.selectBox">Select with a box</span><span class="how" data-i18n="help.selectBoxHow">drag (Select tool): → inside, ← touching</span></li>
           <li><span data-i18n="help.selectNeighbours">… with its edges / faces</span><span class="how" data-i18n="help.doubleClick">double-click</span></li>
           <li><span data-i18n="help.selectConnected">… with everything connected</span><span class="how" data-i18n="help.tripleClick">triple-click</span></li>
           <li><span data-i18n="help.selectAddToggle">Add / add or remove</span><span class="how" data-i18n-html="help.addToggleHow"><span class="k"><kbd>Ctrl</kbd></span> / <span class="k"><kbd>Shift</kbd></span> + click</span></li>
@@ -261,7 +264,7 @@
         <section>
           <h4 data-i18n="help.camera">Camera &amp; views</h4>
           <ul>
-          <li><span data-i18n="help.orbit">Orbit</span><span class="how" data-i18n="help.orbitHow">drag (Select tool) or middle-drag</span></li>
+          <li><span data-i18n="help.orbit">Orbit</span><span class="how" data-i18n="help.orbitHow">drag (Orbit tool) or middle-drag</span></li>
           <li><span data-i18n="help.pan">Pan</span><span class="how" data-i18n="help.rightDrag">right-drag</span></li>
           <li><span data-i18n="help.zoom">Zoom</span><span class="how" data-i18n="help.wheel">mouse wheel</span></li>
           <li><span data-i18n="help.focus">Focus on the selection</span><span class="k"><kbd>F</kbd></span></li>

@@ -21,7 +21,8 @@ const K = (k) => `<span class="k"><kbd>${k}</kbd></span>`;
 const STRINGS = {
   en: {
     // left tool bar
-    'tool.select': 'Select', 'tool.select.tip': 'Select (V)',
+    'tool.select': 'Select', 'tool.select.tip': 'Select: click, or drag a box (left to right: what is fully inside; right to left: what it touches) (V)',
+    'tool.orbit': 'Orbit', 'tool.orbit.tip': 'Orbit: drag to turn the view; a click selects (Q)',
     'tool.line': 'Line', 'tool.line.tip': 'Line: click points; click the start point to close a face (L)',
     'tool.rect': 'Rectangle', 'tool.rect.tip': 'Rectangle: two corners (R)',
     'tool.circle': 'Circle', 'tool.circle.tip': 'Circle: centre, then radius (C)',
@@ -113,7 +114,7 @@ const STRINGS = {
     'diag.title': 'Performance diagnostics', 'diag.download': 'Download report', 'diag.copy': 'Copy report', 'diag.close': 'Close',
     // help popup
     'help.title': 'Help & shortcuts', 'help.close': 'Close help', 'key.space': 'Space',
-    'help.tools': 'Tools (left bar)', 'help.selectTool': 'Select', 'help.lineTool': 'Line', 'help.rectTool': 'Rectangle',
+    'help.tools': 'Tools (left bar)', 'help.selectTool': 'Select', 'help.orbitTool': 'Orbit', 'help.lineTool': 'Line', 'help.rectTool': 'Rectangle',
     'help.circleTool': 'Circle', 'help.pushpullTool': 'Push / Pull', 'help.personTool': 'Person', 'help.measureTool': 'Measure', 'help.moveTool': 'Move',
     'help.moveHow': 'Move: a point, then where it goes', 'help.moveKeys': `click-click or drag · ${K('↑')} up / down`,
     'help.measureSteps': 'Measure: two points',
@@ -136,6 +137,7 @@ const STRINGS = {
     'help.valuePull': 'Push / pull distance', 'help.typeDist': 'type 270, Enter',
     'help.valuesTip': 'Type while drawing or pushing; the value shows next to the cursor. Values are in cm; add a unit for others (2.5m, 25mm). Rectangle: width;depth (400,300 also works).',
     'help.editing': 'Editing', 'help.selectObj': 'Select a face or edge', 'help.clickIt': 'click it (Select tool)',
+    'help.selectBox': 'Select with a box', 'help.selectBoxHow': 'drag (Select tool): → inside, ← touching',
     'help.selectNeighbours': '… with its edges / faces', 'help.doubleClick': 'double-click',
     'help.selectConnected': '… with everything connected', 'help.tripleClick': 'triple-click',
     'help.selectAddToggle': 'Add / add or remove', 'help.addToggleHow': `${K('Ctrl')} / ${K('Shift')} + click`, 'help.selectAll': 'Select all',
@@ -145,7 +147,7 @@ const STRINGS = {
     'help.selectRing': 'Edge ring', 'help.selectRingHow': `${K('Ctrl')} + ${K('Alt')} + click`,
     'help.deleteObj': 'Delete selected', 'help.deselect': 'Deselect', 'help.undoRedo': 'Undo / redo',
     'help.editingTip': 'Change the colour of the selected faces in the Selection card. Deleting a face keeps its edges; deleting the edge between two flat faces merges them. Back faces show in their own colour (Rendering card); Reverse faces turns them around. Smooth blends the shading across edges where faces meet at less than its angle (a hexagon becomes round); circles with more than 12 sides come out smooth.',
-    'help.camera': 'Camera & views', 'help.orbit': 'Orbit', 'help.orbitHow': 'drag (Select tool) or middle-drag',
+    'help.camera': 'Camera & views', 'help.orbit': 'Orbit', 'help.orbitHow': 'drag (Orbit tool) or middle-drag',
     'help.pan': 'Pan', 'help.rightDrag': 'right-drag', 'help.zoom': 'Zoom', 'help.wheel': 'mouse wheel',
     'help.focus': 'Focus on the selection', 'help.home': 'Home: fit the whole scene', 'help.topView': 'Top / bottom / side views', 'help.stdViewsHow': `cube buttons · ${K('T')} = top`, 'help.parallel': 'Parallel projection',
     'help.faceStyles': 'Face style: shaded, monochrome, hidden line, x-ray, wireframe', 'help.faceStylesHow': 'top bar',
@@ -163,7 +165,8 @@ const STRINGS = {
   },
 
   tr: {
-    'tool.select': 'Seç', 'tool.select.tip': 'Seç (V)',
+    'tool.select': 'Seç', 'tool.select.tip': 'Seç: tıkla ya da kutu sürükle (soldan sağa: tamamen içindekiler; sağdan sola: dokunduğu her şey) (V)',
+    'tool.orbit': 'Döndür', 'tool.orbit.tip': 'Döndür: görünümü çevirmek için sürükle; tıklama seçer (Q)',
     'tool.line': 'Çizgi', 'tool.line.tip': 'Çizgi: nokta koy; yüzey için başlangıç noktasına tıkla (L)',
     'tool.rect': 'Dikdörtgen', 'tool.rect.tip': 'Dikdörtgen: iki köşe (R)',
     'tool.circle': 'Daire', 'tool.circle.tip': 'Daire: merkez, sonra yarıçap (C)',
@@ -249,7 +252,7 @@ const STRINGS = {
     'fps.tip': 'Saniyedeki kare sayısı · kare başına süre. Performans tanılaması için tıkla.',
     'diag.title': 'Performans tanılaması', 'diag.download': 'Raporu indir', 'diag.copy': 'Raporu kopyala', 'diag.close': 'Kapat',
     'help.title': 'Yardım ve kısayollar', 'help.close': 'Yardımı kapat', 'key.space': 'Boşluk',
-    'help.tools': 'Araçlar (sol çubuk)', 'help.selectTool': 'Seç', 'help.lineTool': 'Çizgi', 'help.rectTool': 'Dikdörtgen',
+    'help.tools': 'Araçlar (sol çubuk)', 'help.selectTool': 'Seç', 'help.orbitTool': 'Döndür', 'help.lineTool': 'Çizgi', 'help.rectTool': 'Dikdörtgen',
     'help.circleTool': 'Daire', 'help.pushpullTool': 'İt / Çek', 'help.personTool': 'Kişi', 'help.measureTool': 'Ölç', 'help.moveTool': 'Taşı',
     'help.moveHow': 'Taşı: bir nokta, sonra gideceği yer', 'help.moveKeys': `tıkla-tıkla ya da sürükle · ${K('↑')} yukarı / aşağı`,
     'help.measureSteps': 'Ölç: iki nokta',
@@ -272,6 +275,7 @@ const STRINGS = {
     'help.valuePull': 'İt / çek mesafesi', 'help.typeDist': '270 yaz, Enter',
     'help.valuesTip': 'Çizerken ya da iterken yaz; değer imlecin yanında görünür. Değerler cm cinsindendir; başka birim için ekle (2.5m, 25mm). Dikdörtgen: genişlik;derinlik (400,300 de olur).',
     'help.editing': 'Düzenleme', 'help.selectObj': 'Yüzey ya da kenar seç', 'help.clickIt': 'üzerine tıkla (Seç aracı)',
+    'help.selectBox': 'Kutu ile seç', 'help.selectBoxHow': 'sürükle (Seç aracı): → içindekiler, ← dokunanlar',
     'help.selectNeighbours': '… kenarları / yüzeyleriyle', 'help.doubleClick': 'çift tıkla',
     'help.selectConnected': '… bağlı her şeyle', 'help.tripleClick': 'üç kez tıkla',
     'help.selectAddToggle': 'Ekle / ekle ya da çıkar', 'help.addToggleHow': `${K('Ctrl')} / ${K('Shift')} + tıkla`, 'help.selectAll': 'Tümünü seç',
@@ -281,7 +285,7 @@ const STRINGS = {
     'help.selectRing': 'Kenar halkası', 'help.selectRingHow': `${K('Ctrl')} + ${K('Alt')} + tıkla`,
     'help.deleteObj': 'Seçileni sil', 'help.deselect': 'Seçimi kaldır', 'help.undoRedo': 'Geri al / yinele',
     'help.editingTip': 'Seçili yüzeylerin rengini Seçim kartından değiştir. Yüzey silinince kenarları kalır; iki düz yüzey arasındaki kenar silinince yüzeyler birleşir. Arka yüzler kendi renginde görünür (Render kartı); Yüzeyleri ters çevir onları döndürür. Yumuşat, yüzeylerin bu açıdan küçük açıyla birleştiği kenarlarda gölgelemeyi kaynaştırır (altıgen yuvarlaklaşır); kenar sayısı 12 üzerindeki daireler yumuşak çıkar.',
-    'help.camera': 'Kamera ve görünümler', 'help.orbit': 'Döndür', 'help.orbitHow': 'sürükle (Seç aracı) ya da orta tuşla sürükle',
+    'help.camera': 'Kamera ve görünümler', 'help.orbit': 'Döndür', 'help.orbitHow': 'sürükle (Döndür aracı) ya da orta tuşla sürükle',
     'help.pan': 'Kaydır', 'help.rightDrag': 'sağ tuşla sürükle', 'help.zoom': 'Yakınlaştır', 'help.wheel': 'fare tekerleği',
     'help.focus': 'Seçime odaklan', 'help.home': 'Başlangıç: tüm sahneyi sığdır', 'help.topView': 'Üst / alt / yan görünümler', 'help.stdViewsHow': `küp düğmeleri · ${K('T')} = üst`, 'help.parallel': 'Paralel izdüşüm',
     'help.faceStyles': 'Yüzey stili: gölgeli, tek renk, gizli çizgi, röntgen, tel kafes', 'help.faceStylesHow': 'üst çubuk',

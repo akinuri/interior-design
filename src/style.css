@@ -722,6 +722,17 @@ button.icon.lang {
 .group-bar[hidden] { display: none; }
 .group-bar button { background: #fff; border: 1px solid #d3cfc8; padding: 4px 10px; font-weight: 500; }
 
+/* Select tool: the selection box being dragged. */
+.select-box {
+  position: absolute;
+  border: 1px solid #2a6df4;
+  background: rgba(42, 109, 244, 0.08);
+  pointer-events: none;
+  z-index: 3;
+}
+.select-box.crossing { border-style: dashed; }
+.select-box[hidden] { display: none; }
+
 .toast {
   position: fixed;
   left: 50%;

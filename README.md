@@ -29,8 +29,9 @@ Then open the address it prints. A plain static server such as VS Code's Live Se
 
 | Action | Input |
 | --- | --- |
-| Select / Line / Rectangle / Circle / Push-Pull / Measure / Person | `V` / `L` / `R` / `C` / `P` / `M` / `U` |
-| Orbit | Drag (Select tool) or middle-drag |
+| Select / Orbit / Move | `V` / `Q` / `W` |
+| Line / Rectangle / Circle / Push-Pull / Measure / Person | `L` / `R` / `C` / `P` / `M` / `U` |
+| Orbit | Drag (Orbit tool) or middle-drag |
 | Pan | Right-drag |
 | Zoom | Mouse wheel |
 | Close a line into a face | Click its start point |
@@ -38,7 +39,8 @@ Then open the address it prints. A plain static server such as VS Code's Live Se
 | Line at 45° steps / square rectangle | Hold `Shift` while drawing |
 | Exact length / size / radius / distance | Type the value, then `Enter` |
 | Push / pull a face | Drag it, or click, move, click (`Esc` cancels) |
-| Select a face or edge / with neighbours / everything connected | Click / double-click / triple-click (Select tool) |
+| Select a face or edge / with neighbours / everything connected | Click / double-click / triple-click (Select or Orbit tool) |
+| Select with a box: fully inside / touching | Drag left to right / right to left (Select tool) |
 | Add to / toggle in the selection, select all | `Ctrl`+click / `Shift`+click, `Ctrl+A` |
 | Delete selected | `Delete` |
 | Eye view (walk with WASD, `Shift` to run, `Space` to jump) | `E` |
