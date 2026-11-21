@@ -50,6 +50,13 @@ html, body {
   flex-wrap: wrap;
   justify-content: center;
   display: flex;
+  gap: 16px;
+  user-select: none;
+}
+
+/* Two bars: files / language / undo, and the views. */
+.toolbar .bar {
+  display: flex;
   gap: 6px;
   padding: 5px;
   /* Same frosted glass as the right-side cards. */
@@ -59,7 +66,6 @@ html, body {
   border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: 10px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1), inset 0 0 0 1px rgba(0, 0, 0, 0.04);
-  user-select: none;
 }
 
 .toolbar .group {
@@ -659,7 +665,7 @@ button.icon.lang {
     scrollbar-width: none;
   }
   .toolbar::-webkit-scrollbar { display: none; }
-  .toolbar .group { flex-shrink: 0; }
+  .toolbar .group, .toolbar .bar { flex-shrink: 0; }
 
   /* Tools: left edge, below the top bar. */
   .tools {
