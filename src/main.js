@@ -6,6 +6,7 @@ import { createSky } from './sky.js';
 import { createRenderPipeline } from './render.js';
 import { createSceneSettings, pickValid, changedFrom } from './sceneSettings.js';
 import { createTools, MIN_SIDES, MAX_SIDES } from './tools.js';
+import { cm, formatLength, formatArea } from './units.js';
 import { createPerson } from './person.js';
 import { createOrbitCenter } from './orbitCenter.js';
 import { createSideGrid } from './sideGrid.js';
@@ -130,8 +131,9 @@ tools.onToolChange((t) => {
 });
 
 // --- person / eye view ---
-$('person-height').value = String(person.height);
-$('person-height').addEventListener('change', (e) => person.setHeight(num(e.target, person.height)));
+// Person height: shown in cm.
+$('person-height').value = String(cm(person.height));
+$('person-height').addEventListener('change', (e) => person.setHeight(num(e.target, person.height * 100) / 100));
 function showSpeed() {
   $('person-speed').value = String(person.speed);
   $('person-speed-value').textContent = `${person.speed.toFixed(1)} m/s`;
@@ -152,7 +154,7 @@ person.onChange(() => {
   if (person.eye && tools.tool === 'person') tools.setTool('select');
   $('eye').classList.toggle('active', person.eye);
   $('person-remove').disabled = !person.placed;
-  if (document.activeElement !== $('person-height')) $('person-height').value = String(person.height);
+  if (document.activeElement !== $('person-height')) $('person-height').value = String(cm(person.height));
   showSpeed();
 });
 $('person-remove').disabled = !person.placed;
@@ -350,12 +352,12 @@ $('sel-smooth').addEventListener('change', (e) => {
 /** Selection summary: area of one face, length of one edge, else counts. */
 function selectionSummary(faces, edges) {
   const m = model.mesh;
-  if (faces.length === 1 && !edges.length) return ['f.area', `${m.faceArea(faces[0]).toFixed(2)} m\u00b2`];
+  if (faces.length === 1 && !edges.length) return ['f.area', formatArea(m.faceArea(faces[0]))];
   // One edge, or the edges of one curve (a circle): its length.
   const curve = m.edges.get(edges[0])?.curve;
   const oneCurve = edges.length > 1 && curve && edges.every((e) => m.edges.get(e).curve === curve) && edges.length === m.curveEdges(edges[0]).length;
   if (!faces.length && (edges.length === 1 || oneCurve)) {
-    return ['f.length', `${edges.reduce((s, e) => s + m.edgeLength(e), 0).toFixed(2)} m`];
+    return ['f.length', formatLength(edges.reduce((s, e) => s + m.edgeLength(e), 0))];
   }
   const part = (n, one, many) => (n ? [t(n === 1 ? one : many, { n })] : []);
   const groups = model.selectedGroups.length;

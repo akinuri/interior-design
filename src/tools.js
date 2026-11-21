@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Mesh, GROUND, triangulate } from './mesh.js';
 import { t } from './i18n.js';
+import { cm, formatLength, parseLength } from './units.js';
 
 export const MIN_SIDES = 3;
 export const MAX_SIDES = 360;
@@ -19,7 +20,8 @@ export const MAX_SIDES = 360;
  *
  * Drawing happens on the face under the cursor (any direction: floors, walls, tops),
  * or on the ground. While drawing / pushing, typing a value + Enter sets it exactly:
- *   line = length · rect = width;depth (or width,depth) · circle = radius · push/pull = distance.
+ *   line = length · rect = width;depth (or width,depth) · circle = radius · push/pull = distance,
+ *   in cm (or with a unit: 2.5m, 25mm).
  * Circle sides: with the Circle tool, type a number before the first click (a pause starts
  * a new number), or a number + "s" while drawing (e.g. 12s, Enter).
  */
@@ -30,7 +32,7 @@ const SNAP_COLORS = { vertex: 0xf28c28, mid: 0x18a6b8, edge: 0xd6336c };
 const UP = new THREE.Vector3(0, 1, 0);
 
 const round6 = (v) => Math.round(v * 1e6) / 1e6;
-const fmt = (m) => `${m.toFixed(2)} m`;
+const fmt = formatLength; // labels in the working unit (cm)
 
 export function createTools({ getCamera, canvas, controls, scene, model, settings, person }) {
   const raycaster = new THREE.Raycaster();
@@ -240,7 +242,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       fill.geometry = fillGeometry(c.map(up), p);
       preview.visible = fill.visible = true;
       const w = c[0].distanceTo(c[1]), d = c[0].distanceTo(c[3]);
-      setLabel(labelAt(c[0].clone().add(c[2]).multiplyScalar(0.5)), `${w.toFixed(2)} × ${d.toFixed(2)} m`);
+      setLabel(labelAt(c[0].clone().add(c[2]).multiplyScalar(0.5)), `${cm(w)} × ${cm(d)} cm`);
     }
 
     if (tool === 'circle' && !anchor && cursor) {
@@ -395,11 +397,12 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   const cancelOp = () => endOp(false);
 
   // --- typed values ---
+  /** Typed lengths in metres (typed in cm unless a unit is given: 2.5m, 25mm). */
   function parseTyped(pair) {
-    const s = typed.trim();
+    const s = typed.trim().replace(/\s+(mm|cm|m)\b/gi, '$1'); // "2.5 m" → "2.5m"
     let parts = s.split(/[;x×*\s]+/i).filter(Boolean);
     if (pair && parts.length === 1 && s.includes(',')) parts = s.split(',');
-    return parts.map((p) => parseFloat(p.replace(',', '.'))).filter(Number.isFinite);
+    return parts.map(parseLength).filter(Number.isFinite);
   }
 
   function applyTyped() {
@@ -454,8 +457,10 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       consume();
       return;
     }
+    // Digits and separators; unit letters (m, c: 2.5m, 25mm, 250cm) once a number has started.
     const allowed = tool === 'circle' ? /^[0-9.,;x× s-]$/i : /^[0-9.,;x× -]$/i;
-    if (allowed.test(e.key) && !(e.key === ' ' && !typed)) { typed += e.key; consume(); return; }
+    const unitKey = typed && /^[mc]$/i.test(e.key);
+    if ((allowed.test(e.key) || unitKey) && !(e.key === ' ' && !typed)) { typed += e.key; consume(); return; }
     if (e.key === 'Backspace' && typed) { typed = typed.slice(0, -1); consume(); return; }
     if (e.key === 'Enter' && typed) { applyTyped(); consume(); return; }
     if (e.key === 'Escape' && typed) { typed = ''; consume(); }

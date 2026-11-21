@@ -7,7 +7,7 @@ A simple 3D interior design app that runs in the browser. Draw flat shapes on an
 - **Edges and faces, like SketchUp**: everything is made of edges and flat faces, and geometry that touches joins up. Closed loops of lines become faces, a line across a face splits it, and a box drawn on a box is one object.
 - **Draw**: line, rectangle and circle, on the ground or on any face (walls too). Points snap to corners, midpoints, edges and the grid.
 - **Push / Pull**: give a face depth. Pulling out adds, pushing in carves, and pushing through to the far side cuts a hole, e.g. a door: draw a rectangle on a wall, then push it through.
-- **Exact values**: type a number while drawing or pushing, then `Enter` (e.g. `2.5` for a length, `4;3` for a rectangle).
+- **Exact values**: type a number while drawing or pushing, then `Enter`. Lengths are in centimetres (e.g. `250` for a line, `400;300` for a rectangle); add a unit for others (`2.5m`, `25mm`).
 - **Edit**: select faces and edges (double-click adds neighbours, triple-click everything connected), change their colour, or delete them. Designs from earlier versions (shapes, walls) are converted when opened.
 - **Eye view**: place a person and see the room through their eyes. Walk around with WASD.
 - **Views**: orbit, top view and parallel (orthographic) projection.

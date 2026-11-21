@@ -94,7 +94,7 @@
           <label><span data-i18n="f.fov">FOV</span> <output id="view-fov-value"></output></label>
           <input id="view-fov" type="range" min="20" max="100" step="1" />
           <label data-i18n-title="f.orbitCenter.tip"><span data-i18n="f.orbitCenter">Show orbit center</span> <input id="view-orbit" type="checkbox" class="check" /></label>
-          <label><span data-i18n="f.personHeight">Person height (m)</span> <input id="person-height" type="number" step="0.05" min="0.5" max="2.5" /></label>
+          <label><span data-i18n="f.personHeight">Person height (cm)</span> <input id="person-height" type="number" step="1" min="50" max="250" /></label>
           <label><span data-i18n="f.walkSpeed">Walk speed</span> <output id="person-speed-value"></output></label>
           <input id="person-speed" type="range" min="0.3" max="5" step="0.1" data-i18n-title="f.walkSpeed.tip" />
           <button id="person-remove" class="danger" data-i18n="btn.removePerson">Remove person</button>
@@ -225,13 +225,13 @@
         <section>
           <h4 data-i18n="help.values">Exact values</h4>
           <ul>
-          <li><span data-i18n="help.valueLine">Line length</span><span class="how" data-i18n="help.typeLen">type 2.5, Enter</span></li>
-          <li><span data-i18n="help.valueRect">Rectangle size</span><span class="how" data-i18n="help.typeRect">type 4;3, Enter</span></li>
-          <li><span data-i18n="help.valueCircle">Circle radius</span><span class="how" data-i18n="help.typeRadius">type 0.6, Enter</span></li>
+          <li><span data-i18n="help.valueLine">Line length</span><span class="how" data-i18n="help.typeLen">type 250, Enter</span></li>
+          <li><span data-i18n="help.valueRect">Rectangle size</span><span class="how" data-i18n="help.typeRect">type 400;300, Enter</span></li>
+          <li><span data-i18n="help.valueCircle">Circle radius</span><span class="how" data-i18n="help.typeRadius">type 60, Enter</span></li>
           <li><span data-i18n="help.valueSides">Circle sides</span><span class="how" data-i18n="help.typeSides">type 24 before the first click, or 24s while drawing</span></li>
-          <li><span data-i18n="help.valuePull">Push / pull distance</span><span class="how" data-i18n="help.typeDist">type 2.7, Enter</span></li>
+          <li><span data-i18n="help.valuePull">Push / pull distance</span><span class="how" data-i18n="help.typeDist">type 270, Enter</span></li>
           </ul>
-          <p class="tip" data-i18n="help.valuesTip">Type while drawing or pushing; the value shows next to the cursor. Rectangle: width;depth (4,3 also works).</p>
+          <p class="tip" data-i18n="help.valuesTip">Type while drawing or pushing; the value shows next to the cursor. Values are in cm; add a unit for others (2.5m, 25mm). Rectangle: width;depth (400,300 also works).</p>
         </section>
         <section>
           <h4 data-i18n="help.editing">Editing</h4>
