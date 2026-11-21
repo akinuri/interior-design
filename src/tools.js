@@ -70,7 +70,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   const marker = new THREE.Mesh(new THREE.RingGeometry(0.07, 0.12, 32).rotateX(-Math.PI / 2), markerMat);
   marker.renderOrder = 11;
   const helpers = [preview, fill, hiFill, hiLine, marker];
-  for (const h of helpers) { h.visible = false; h.raycast = () => {}; scene.add(h); }
+  // Overlays: not pickable, and kept out of the AO pass (it would shade them like solid surfaces).
+  for (const h of helpers) { h.visible = false; h.raycast = () => {}; h.userData.noAO = true; scene.add(h); }
 
   const setPoints = (obj, pts) => { obj.geometry.dispose(); obj.geometry = new THREE.BufferGeometry().setFromPoints(pts); };
 
