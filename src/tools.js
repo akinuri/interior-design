@@ -3,6 +3,9 @@ import { Mesh, GROUND, triangulate, makePlane } from './mesh.js';
 import { t } from './i18n.js';
 import { cm, formatLength, parseLength } from './units.js';
 
+/** Typing into a text / number field or a dropdown (shortcuts stay out of the way)? Checkboxes, sliders and colour pickers don't count. */
+const isTyping = (e) => !!e.target.closest?.('input:not([type="checkbox"]):not([type="range"]):not([type="color"]), select, textarea');
+
 export const MIN_SIDES = 3;
 export const MAX_SIDES = 360;
 
@@ -488,7 +491,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   // Capture phase, so typed digits / Backspace / Enter / Esc are handled here
   // before the app's shortcuts see them.
   window.addEventListener('keydown', (e) => {
-    if (e.target.matches?.('input, select, textarea') || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
     const busy = drawing() || !!op || !!mv;
     const consume = () => { e.preventDefault(); e.stopPropagation(); updatePreview(); };
     // Move tool: ↑ switches between moving along the floor and up / down.

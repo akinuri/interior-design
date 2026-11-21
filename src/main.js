@@ -15,6 +15,9 @@ import { installLogCapture, runDiagnostics, summarize } from './diagnostics.js';
 import { initTooltips, setTip } from './tooltips.js';
 import { t, getLang, setLang, LANGUAGES, onLangChange, applyTranslations } from './i18n.js';
 
+/** Typing into a text / number field or a dropdown (shortcuts stay out of the way)? Checkboxes, sliders and colour pickers don't count. */
+const isTyping = (e) => !!e.target.closest?.('input:not([type="checkbox"]):not([type="range"]):not([type="color"]), select, textarea');
+
 // --- scene ---
 const canvas = document.getElementById('c');
 installLogCapture(canvas); // before anything can warn, for the diagnostics report
@@ -297,7 +300,7 @@ $('grid-reset').addEventListener('click', () => { Object.assign(grid, GRID_DEFAU
 applyGrid();
 // G toggles the grid
 window.addEventListener('keydown', (e) => {
-  if (e.key.toLowerCase() !== 'g' || e.ctrlKey || e.metaKey || e.target.matches('input, select, textarea')) return;
+  if (e.key.toLowerCase() !== 'g' || e.ctrlKey || e.metaKey || isTyping(e)) return;
   grid.visible = !grid.visible;
   $('grid-visible').checked = grid.visible;
   applyGrid();
@@ -719,7 +722,7 @@ function setScene(data) {
 
 // --- keyboard ---
 window.addEventListener('keydown', (e) => {
-  if (e.target.matches('input, select, textarea')) return;
+  if (isTyping(e)) return;
   if ($('help').open) return; // help popup handles its own keys (Esc closes it)
   if (e.key === '?') { e.preventDefault(); openHelp(); return; }
   const k = e.key.toLowerCase();

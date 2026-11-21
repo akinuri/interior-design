@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 
+/** Typing into a text / number field or a dropdown (shortcuts stay out of the way)? Checkboxes, sliders and colour pickers don't count. */
+const isTyping = (e) => !!e.target.closest?.('input:not([type="checkbox"]):not([type="range"]):not([type="color"]), select, textarea');
+
 const STORAGE_KEY = 'interior-design.person.v1';
 const MODEL_HEIGHT = 1.75; // the figure below is modelled at this height
 const EYE_RATIO = 0.93; // eye height / body height
@@ -151,7 +154,7 @@ export function createPerson({ scene, camera, controls, canvas, model }) {
 
   const MOVE_KEYS = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
   window.addEventListener('keydown', (e) => {
-    if (!eye || e.target.matches('input, select, textarea') || e.ctrlKey || e.metaKey) return;
+    if (!eye || isTyping(e) || e.ctrlKey || e.metaKey) return;
     const k = e.key.toLowerCase();
     if (MOVE_KEYS.includes(k)) { keys.add(k); e.preventDefault(); }
     if (e.key === ' ') {
