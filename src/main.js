@@ -8,6 +8,7 @@ import { createSceneSettings, pickValid, changedFrom } from './sceneSettings.js'
 import { createTools, MIN_SIDES, MAX_SIDES } from './tools.js';
 import { createPerson } from './person.js';
 import { createOrbitCenter } from './orbitCenter.js';
+import { createSideGrid } from './sideGrid.js';
 import { createProjectIO } from './io.js';
 import { installLogCapture, runDiagnostics, summarize } from './diagnostics.js';
 import { initTooltips, setTip } from './tooltips.js';
@@ -414,6 +415,31 @@ function setStdView(name) {
   markStdView(name);
 }
 viewButtons.forEach((b) => b.addEventListener('click', () => setStdView(b.dataset.view)));
+
+// Side views in parallel projection: a vertical grid behind the model (graph paper for
+// reading heights / widths). Shown only while the view still looks straight from that side.
+const sideGrid = createSideGrid(scene, ground.gridColor);
+let modelBox = model.boundingBox();
+model.onChange(() => { modelBox = model.boundingBox(); });
+function updateSideGrid() {
+  const side = stdView && !['top', 'bottom'].includes(stdView);
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  const show = !!side && camera === ortho && !person.eye && grid.visible
+    && dir.dot(STD_VIEWS[stdView].clone().normalize()) > 0.9999;
+  let behind = 1;
+  if (show && !modelBox.isEmpty()) {
+    // Past the far side of the model.
+    for (let i = 0; i < 8; i++) {
+      const c = new THREE.Vector3(i & 1 ? modelBox.max.x : modelBox.min.x, i & 2 ? modelBox.max.y : modelBox.min.y, i & 4 ? modelBox.max.z : modelBox.min.z);
+      behind = Math.max(behind, -c.sub(controls.target).dot(dir) + 1);
+    }
+  }
+  sideGrid.update({
+    show, dir, target: controls.target, behind,
+    cell: grid.cell, majorEvery: grid.majorEvery, opacity: grid.opacity,
+    pxPerMeter: viewport.clientHeight / ((ortho.top - ortho.bottom) / ortho.zoom),
+  });
+}
 // Orbiting away from a standard view leaves it (panning / zooming keep it).
 controls.addEventListener('end', () => {
   if (!stdView || fly) return;
@@ -760,6 +786,7 @@ function frame() {
   ground.update(camera);
   updateMeasureLabel();
   orbitCenter.update(camera, controls.target, viewport.clientHeight, !person.eye);
+  updateSideGrid();
   pipeline.render(camera);
 }
 renderer.setAnimationLoop(frame);
