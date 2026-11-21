@@ -376,6 +376,43 @@ controls.addEventListener('end', () => {
 });
 
 /**
+ * Camera framing that fits `pts` seen from direction `dir` (unit, from the target towards
+ * the camera): the points' outline fills the view with a thin margin and sits centred
+ * (the target moves sideways / up-down to centre it). Returns { target, dist, fitHeight }
+ * (fitHeight: the world height a parallel view should show).
+ */
+function fitView(pts, center, dir) {
+  const FILL = 0.86; // the outline fills this much of the view (a thin margin around it)
+  const vHalf = THREE.MathUtils.degToRad(persp.fov) / 2;
+  const tanV = Math.tan(vHalf) * FILL, tanH = Math.tan(vHalf) * persp.aspect * FILL;
+  const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), dir).normalize();
+  const up = new THREE.Vector3().crossVectors(dir, right);
+  const target = center.clone();
+  let dist = 0;
+  // A few rounds: fit the distance, then shift the target to centre the outline.
+  for (let round = 0; round < 8; round++) {
+    const cam = pts.map((q) => { const c = q.clone().sub(target); return { x: c.dot(right), y: c.dot(up), z: c.dot(dir) }; });
+    dist = Math.max(...cam.map((c) => Math.max(c.z + Math.abs(c.x) / tanH, c.z + Math.abs(c.y) / tanV)));
+    // Outline on screen (in units of the half view), then move its middle to the centre.
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const c of cam) {
+      const depth = Math.max(dist - c.z, 1e-3);
+      const sx = c.x / (depth * tanH), sy = c.y / (depth * tanV);
+      x0 = Math.min(x0, sx); x1 = Math.max(x1, sx); y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
+    }
+    target.addScaledVector(right, ((x0 + x1) / 2) * tanH * dist).addScaledVector(up, ((y0 + y1) / 2) * tanV * dist);
+  }
+  const cam = pts.map((q) => { const c = q.clone().sub(target); return { x: c.dot(right), y: c.dot(up), z: c.dot(dir) }; });
+  dist = Math.max(...cam.map((c) => Math.max(c.z + Math.abs(c.x) / tanH, c.z + Math.abs(c.y) / tanV)));
+  // Parallel view: no perspective, so centre on the outline's extent directly.
+  const xs = cam.map((c) => c.x), ys = cam.map((c) => c.y);
+  const [xMin, xMax, yMin, yMax] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const parallelTarget = target.clone().addScaledVector(right, (xMin + xMax) / 2).addScaledVector(up, (yMin + yMax) / 2);
+  const fitHeight = Math.max(yMax - yMin, (xMax - xMin) / persp.aspect) / FILL;
+  return { target, dist, fitHeight, parallelTarget };
+}
+
+/**
  * Home: default 3D angle, framing everything in the scene (shapes, lines + person).
  * An empty scene goes back to the starting view of the origin.
  */
@@ -384,27 +421,38 @@ function homeView() {
   markStdView(null);
   viewBefore = null;
 
-  const box = model.boundingBox();
+  // Everything to frame: the geometry's points and the person.
+  const pts = [...model.mesh.vertices.values()].map((v) => v.clone());
   const p = person.getState();
-  if (p.placed) {
-    box.expandByPoint(new THREE.Vector3(p.x, 0, p.z));
-    box.expandByPoint(new THREE.Vector3(p.x, p.height, p.z));
-  }
+  if (p.placed) pts.push(new THREE.Vector3(p.x, 0, p.z), new THREE.Vector3(p.x, p.height, p.z));
+  const box = new THREE.Box3().setFromPoints(pts);
 
   const dir = new THREE.Vector3().fromArray(DEFAULT_CAMERA.position).normalize();
-  const vHalf = THREE.MathUtils.degToRad(persp.fov) / 2;
-  const hHalf = Math.atan(Math.tan(vHalf) * persp.aspect);
   let target, dist, fitHeight;
   if (box.isEmpty()) {
     target = new THREE.Vector3().fromArray(DEFAULT_CAMERA.target);
     dist = new THREE.Vector3().fromArray(DEFAULT_CAMERA.position).length();
     fitHeight = visibleHeightAt(dist);
   } else {
-    const sphere = box.getBoundingSphere(new THREE.Sphere());
-    const r = Math.max(sphere.radius, 2) * 1.15; // a little margin
-    target = sphere.center;
-    dist = r / Math.sin(Math.min(vHalf, hHalf)); // whole sphere fits both ways
-    fitHeight = (2 * r) / Math.min(1, persp.aspect); // parallel view: fit the narrower side
+    // Tiny scenes are framed as at least 2 m across.
+    const size = box.getSize(new THREE.Vector3());
+    if (Math.max(size.x, size.y, size.z) < 2) {
+      box.expandByVector(new THREE.Vector3(2, 2, 2).sub(size).max(new THREE.Vector3()).multiplyScalar(0.5));
+      for (let i = 0; i < 8; i++) pts.push(new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z));
+    }
+    const center = box.getCenter(new THREE.Vector3());
+    let parallelTarget;
+    ({ target, dist, fitHeight, parallelTarget } = fitView(pts, center, dir));
+    if (camera === ortho) target = parallelTarget;
+    // Centring moved the target sideways, possibly into empty space or below the ground.
+    // Keep the camera (and so the framing) and slide the target along the line of sight
+    // to the point nearest the scene's middle, not below the ground.
+    const eye = target.clone().addScaledVector(dir, dist);
+    const look = dir.clone().negate();
+    let along = center.clone().sub(eye).dot(look);
+    if (look.y < -1e-6) along = Math.min(along, eye.y / -look.y); // reaches the ground here
+    target = eye.clone().addScaledVector(look, Math.max(along, 0.5));
+    dist = eye.distanceTo(target);
   }
   const zoom = camera === ortho ? orthoViewHeight / fitHeight : undefined;
   flyTo(target.clone().addScaledVector(dir, dist), target.clone(), zoom, { duration: 1.0, easeInOut: true });
