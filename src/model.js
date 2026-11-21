@@ -1,32 +1,27 @@
 import * as THREE from 'three';
+import { Mesh, shapesToMesh } from './mesh.js';
 
 /*
- * The scene model: shapes and lines.
+ * The scene model: edges and faces (see mesh.js), with undo history, rendering,
+ * picking and the selection.
  *
- * Shape  = a flat profile in the XZ plane, lifted to `base` and extruded up by `height`.
- *          height 0 = a flat face (just drawn, not pushed/pulled yet).
- *   { id, kind: 'poly', points: [{x,z}…] (counter-clockwise, area > 0), base, height, color }
- *   { id, kind: 'circle', center: {x,z}, radius, base, height, color }
- * Line   = an open chain of edges (Line tool without closing the loop).
- *   { id, kind: 'line', points: [{x,y,z}…] }
- *
- * Faces of a shape (for picking and push/pull):
- *   { type: 'top' } · { type: 'bottom' } · { type: 'side', i } (edge i → i+1 of the profile)
+ * Selection = a set of keys: 'f<id>' (face) and 'e<id>' (edge).
  */
 
-const STORAGE_KEY = 'interior-design.model.v1';
+const STORAGE_KEY = 'interior-design.model.v2';
+const LEGACY_SHAPES_KEY = 'interior-design.model.v1';
 const LEGACY_WALLS_KEY = 'interior-design.walls.v1';
 export const DEFAULT_COLOR = '#ffffff';
 export const CIRCLE_SEGMENTS = 48;
-const MIN_SIZE = 0.01;
-// Flat faces sit slightly above their plane, so the ground grid / a top face below never shows through
-// (faces are also pushed back a little in depth so edge lines draw cleanly on top of them).
+// Faces on the ground sit slightly above it, so the grid never shows through them.
 const FLAT_LIFT = 0.01;
+const onGround = (p) => Math.abs(p.y) < 1e-4;
 
-// --- profile helpers ---------------------------------------------------------
+// --- older formats: shapes (v3) and walls (v1/v2) ----------------------------------------
 
-/** Signed area in XZ (positive = the orientation we store). */
-export function signedArea(pts) {
+const isNum = Number.isFinite;
+
+function signedArea(pts) {
   let a = 0;
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i], q = pts[(i + 1) % pts.length];
@@ -35,8 +30,7 @@ export function signedArea(pts) {
   return a / 2;
 }
 
-/** Copy of `pts` in the stored orientation (area > 0), without repeated points. */
-export function normalizeProfile(pts) {
+function normalizeProfile(pts) {
   const out = [];
   for (const p of pts) {
     const prev = out.at(-1);
@@ -46,7 +40,7 @@ export function normalizeProfile(pts) {
   return signedArea(out) < 0 ? out.reverse() : out;
 }
 
-export function profileOf(s) {
+function profileOf(s) {
   if (s.kind === 'circle') {
     const pts = [];
     for (let i = 0; i < CIRCLE_SEGMENTS; i++) {
@@ -58,203 +52,14 @@ export function profileOf(s) {
   return s.points;
 }
 
-/** Outward normal (XZ, unit) of profile edge i → i+1. */
-export function edgeNormal(pts, i) {
-  const p = pts[i], q = pts[(i + 1) % pts.length];
-  const dx = q.x - p.x, dz = q.z - p.z;
-  const l = Math.hypot(dx, dz) || 1;
-  return { x: dz / l, z: -dx / l };
-}
-
-// --- push / pull ---------------------------------------------------------------
-
-/**
- * `orig` with `face` moved `d` metres along its outward normal.
- * Returns null if the result would be degenerate.
- */
-export function pushPull(orig, face, d) {
-  const s = structuredClone(orig);
-  if (face.type === 'top') {
-    if (orig.height < 1e-6) {
-      // Flat face: pulling up extrudes up, pushing down extrudes down.
-      if (Math.abs(d) < MIN_SIZE) return { ...s, height: 0 };
-      if (d > 0) s.height = d;
-      else { s.base = orig.base + d; s.height = -d; }
-    } else {
-      s.height = orig.height + d;
-      if (s.height < MIN_SIZE) return null;
-    }
-    return s;
-  }
-  if (face.type === 'bottom') {
-    s.base = orig.base - d;
-    s.height = orig.height + d;
-    return s.height < MIN_SIZE ? null : s;
-  }
-  // side
-  if (orig.kind === 'circle') {
-    s.radius = orig.radius + d;
-    return s.radius < MIN_SIZE ? null : s;
-  }
-  const P = orig.points;
-  const n = P.length;
-  const i = face.i, j = (i + 1) % n;
-  const nrm = edgeNormal(P, i);
-  // Each end of the moved edge slides along its neighbouring edge (keeps neighbours' directions).
-  const slide = (k, from) => {
-    const ux = P[k].x - P[from].x, uz = P[k].z - P[from].z;
-    const ul = Math.hypot(ux, uz) || 1;
-    const dot = (ux / ul) * nrm.x + (uz / ul) * nrm.z;
-    if (Math.abs(dot) < 0.05) return { x: P[k].x + nrm.x * d, z: P[k].z + nrm.z * d };
-    const t = d / dot;
-    return { x: P[k].x + (ux / ul) * t, z: P[k].z + (uz / ul) * t };
-  };
-  s.points = P.map((p) => ({ ...p }));
-  s.points[i] = slide(i, (i - 1 + n) % n);
-  s.points[j] = slide(j, (j + 1) % n);
-  // Reject flips / collapses.
-  if (signedArea(s.points) < 1e-4) return null;
-  for (let k = 0; k < n; k++) {
-    const p = s.points[k], q = s.points[(k + 1) % n];
-    if (Math.hypot(q.x - p.x, q.z - p.z) < MIN_SIZE) return null;
-  }
-  return s;
-}
-
-// --- geometry ---------------------------------------------------------------------
-
-/**
- * Non-indexed geometry for a shape, plus `faceIds[triangle]` so a raycast hit
- * can tell which face (top / bottom / side i) it landed on.
- */
-function buildShapeGeometry(s) {
-  const P = profileOf(s);
-  const pos = [];
-  const nor = [];
-  const faceIds = [];
-  // `vn` (optional): per-vertex normals for smooth shading (round sides of circles).
-  const tri = (a, b, c, n, face, vn) => {
-    // Fix winding so the triangle faces along n.
-    const ab = new THREE.Vector3().subVectors(b, a);
-    const ac = new THREE.Vector3().subVectors(c, a);
-    let normals = vn ?? [n, n, n];
-    if (ab.cross(ac).dot(n) < 0) { [b, c] = [c, b]; normals = [normals[0], normals[2], normals[1]]; }
-    [a, b, c].forEach((v, k) => { pos.push(v.x, v.y, v.z); nor.push(normals[k].x, normals[k].y, normals[k].z); });
-    faceIds.push(face);
-  };
-  const contour = P.map((p) => new THREE.Vector2(p.x, p.z));
-  const caps = THREE.ShapeUtils.triangulateShape(contour, []);
-  const flat = s.height < 1e-6;
-  const y0 = s.base + (flat ? FLAT_LIFT : 0);
-  const y1 = s.base + s.height;
-  const up = new THREE.Vector3(0, 1, 0);
-  const down = new THREE.Vector3(0, -1, 0);
-  const v = (p, y) => new THREE.Vector3(p.x, y, p.z);
-
-  for (const [a, b, c] of caps) tri(v(P[a], flat ? y0 : y1), v(P[b], flat ? y0 : y1), v(P[c], flat ? y0 : y1), up, { type: 'top' });
-  if (!flat) {
-    for (const [a, b, c] of caps) tri(v(P[a], y0), v(P[b], y0), v(P[c], y0), down, { type: 'bottom' });
-    for (let i = 0; i < P.length; i++) {
-      const p = P[i], q = P[(i + 1) % P.length];
-      const en = edgeNormal(P, i);
-      const n = new THREE.Vector3(en.x, 0, en.z);
-      const face = { type: 'side', i };
-      if (s.kind === 'circle') {
-        // Round side: radial normals per vertex, so it shades smoothly instead of in facets.
-        const rp = new THREE.Vector3(p.x - s.center.x, 0, p.z - s.center.z).normalize();
-        const rq = new THREE.Vector3(q.x - s.center.x, 0, q.z - s.center.z).normalize();
-        tri(v(p, y0), v(q, y0), v(q, y1), n, face, [rp, rq, rq]);
-        tri(v(p, y0), v(q, y1), v(p, y1), n, face, [rp, rq, rp]);
-      } else {
-        tri(v(p, y0), v(q, y0), v(q, y1), n, face);
-        tri(v(p, y0), v(q, y1), v(p, y1), n, face);
-      }
-    }
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  g.computeBoundingSphere();
-  g.computeBoundingBox();
-  return { geometry: g, faceIds };
-}
-
-/** Corner points (world) of one face, in order: for highlighting it. */
-export function facePolygon(s, face) {
-  const P = profileOf(s);
-  const y0 = s.base, y1 = s.base + s.height;
-  if (face.type === 'top') return P.map((p) => new THREE.Vector3(p.x, s.height < 1e-6 ? y0 + FLAT_LIFT : y1, p.z));
-  if (face.type === 'bottom') return P.map((p) => new THREE.Vector3(p.x, y0, p.z));
-  if (s.kind === 'circle') {
-    // A circle's side is one round face: highlight its top and bottom rims.
-    return null;
-  }
-  const p = P[face.i], q = P[(face.i + 1) % P.length];
-  return [new THREE.Vector3(p.x, y0, p.z), new THREE.Vector3(q.x, y0, q.z), new THREE.Vector3(q.x, y1, q.z), new THREE.Vector3(p.x, y1, p.z)];
-}
-
-/** Outward normal (world) of a face. */
-export function faceNormal(s, face) {
-  if (face.type === 'top') return new THREE.Vector3(0, 1, 0);
-  if (face.type === 'bottom') return new THREE.Vector3(0, -1, 0);
-  const n = edgeNormal(profileOf(s), face.i);
-  return new THREE.Vector3(n.x, 0, n.z);
-}
-
-// --- materials --------------------------------------------------------------------
-
-const materials = new Map();
-function shapeMaterial(color, flat) {
-  const key = `${color}|${flat}`;
-  let m = materials.get(key);
-  if (!m) {
-    // Solids are pushed back slightly in depth so edge lines on their borders win cleanly.
-    // Flat faces aren't: on a face seen at a shallow angle that offset grows large enough
-    // to let the ground grid show through.
-    m = new THREE.MeshStandardMaterial({
-      color, roughness: 0.9,
-      side: flat ? THREE.DoubleSide : THREE.FrontSide,
-      polygonOffset: !flat, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
-    });
-    materials.set(key, m);
-  }
-  return m;
-}
-
-const outlineMat = new THREE.LineBasicMaterial({ color: 0x2a6df4, depthTest: false, transparent: true, opacity: 0.9 });
-// Thin dark lines along every edge, so faces that shade alike stay distinguishable.
-const edgeMat = new THREE.LineBasicMaterial({ color: 0x2b2d31, transparent: true, opacity: 0.35, depthWrite: false });
-// Open lines (Line tool, not closed): always clearly visible.
-const lineMat = new THREE.LineBasicMaterial({ color: 0x2b2d31 });
-const lineSelMat = new THREE.LineBasicMaterial({ color: 0x2a6df4, depthTest: false, transparent: true });
-
-/** Edge line style (from the Rendering settings). */
-export function setEdgeLines({ visible, opacity }) {
-  edgeMat.opacity = opacity;
-  edgeMat.visible = visible && opacity > 0;
-}
-
-function disposeObject(obj) {
-  obj.geometry?.dispose();
-  for (const child of [...obj.children]) {
-    child.geometry?.dispose();
-    obj.remove(child);
-  }
-}
-
-// --- validation / legacy ---------------------------------------------------------------
-
-const isNum = Number.isFinite;
-const isColor = (c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
-
 function cleanShape(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const base = isNum(raw.base) ? raw.base : 0;
   const height = isNum(raw.height) && raw.height > 0 ? raw.height : 0;
-  const color = isColor(raw.color) ? raw.color : DEFAULT_COLOR;
+  const color = typeof raw.color === 'string' && /^#[0-9a-f]{6}$/i.test(raw.color) ? raw.color : DEFAULT_COLOR;
   if (raw.kind === 'circle') {
     const c = raw.center;
-    if (!c || !isNum(c.x) || !isNum(c.z) || !isNum(raw.radius) || raw.radius < MIN_SIZE) return null;
+    if (!c || !isNum(c.x) || !isNum(c.z) || !isNum(raw.radius) || raw.radius < 0.01) return null;
     return { kind: 'circle', center: { x: c.x, z: c.z }, radius: raw.radius, base, height, color };
   }
   if (raw.kind === 'poly' && Array.isArray(raw.points)) {
@@ -268,21 +73,21 @@ function cleanShape(raw) {
 function cleanLine(raw) {
   if (!raw || !Array.isArray(raw.points)) return null;
   const pts = raw.points.filter((p) => p && isNum(p.x) && isNum(p.y) && isNum(p.z)).map(({ x, y, z }) => ({ x, y, z }));
-  return pts.length >= 2 ? { kind: 'line', points: pts } : null;
+  return pts.length >= 2 ? { points: pts } : null;
 }
 
 /**
  * Walls from older files / sessions → extruded shapes (mitred like before).
  * A wall was { a:{x,z}, b:{x,z}, thickness, height, color }.
  */
-export function wallsToShapes(walls) {
+function wallsToShapes(walls) {
   const list = (Array.isArray(walls) ? walls : []).filter((w) => w?.a && w?.b && isNum(w.a.x) && isNum(w.a.z) && isNum(w.b.x) && isNum(w.b.z));
   const near = (p, q) => Math.abs(p.x - q.x) < 1e-4 && Math.abs(p.z - q.z) < 1e-4;
   const cross2 = (p, q) => p.x * q.z - p.z * q.x;
   const shapes = [];
   for (const w of list) {
     const len = Math.hypot(w.b.x - w.a.x, w.b.z - w.a.z);
-    if (len < MIN_SIZE) continue;
+    if (len < 0.01) continue;
     const t = isNum(w.thickness) && w.thickness > 0 ? w.thickness : 0.15;
     const h = t / 2;
     const u = { x: (w.b.x - w.a.x) / len, z: (w.b.z - w.a.z) / len };
@@ -323,17 +128,48 @@ export function wallsToShapes(walls) {
   return shapes;
 }
 
-// --- the model -------------------------------------------------------------------------
+/** A mesh from any saved form: { geometry } (now), { shapes, lines } (v3), { walls } (v1/v2). */
+function meshFromData(data) {
+  if (data?.geometry) return Mesh.fromData(data.geometry);
+  const shapes = [
+    ...(Array.isArray(data?.shapes) ? data.shapes.map(cleanShape).filter(Boolean) : []),
+    ...wallsToShapes(data?.walls),
+  ];
+  const lines = Array.isArray(data?.lines) ? data.lines.map(cleanLine).filter(Boolean) : [];
+  return shapesToMesh(shapes, lines, profileOf);
+}
+
+// --- materials ---------------------------------------------------------------------------
+
+const faceMat = new THREE.MeshStandardMaterial({
+  vertexColors: true, roughness: 0.9, side: THREE.DoubleSide,
+  // Pushed back slightly in depth so edge lines on their borders win cleanly.
+  polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+});
+// Faces lying on the ground: lifted instead (an offset would let the grid through at shallow angles).
+const groundFaceMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide });
+// Thin dark lines along every edge, so faces that shade alike stay distinguishable.
+const edgeMat = new THREE.LineBasicMaterial({ color: 0x2b2d31, transparent: true, opacity: 0.35, depthWrite: false });
+// Edges without faces (lines): always clearly visible.
+const lineMat = new THREE.LineBasicMaterial({ color: 0x2b2d31 });
+// Selected faces are tinted towards this (an overlay would fight the faces in depth).
+const SELECT_TINT = new THREE.Color(0x2a6df4);
+const selEdgeMat = new THREE.LineBasicMaterial({ color: 0x2a6df4 });
+
+/** Edge line style (from the Rendering settings). */
+export function setEdgeLines({ visible, opacity }) {
+  edgeMat.opacity = opacity;
+  edgeMat.visible = visible && opacity > 0;
+}
+
+// --- the model -----------------------------------------------------------------------------
 
 export class Model {
   constructor(scene) {
-    this.group = new THREE.Group(); // shape meshes (pickable)
-    this.lineGroup = new THREE.Group(); // open lines
-    scene.add(this.group, this.lineGroup);
-    this.shapes = [];
-    this.lines = [];
-    this.objects = new Map(); // id → mesh / line object
-    this.selectedId = null;
+    this.group = new THREE.Group();
+    scene.add(this.group);
+    this.mesh = new Mesh();
+    this.selection = new Set();
     this.undoStack = [];
     this.redoStack = [];
     this.listeners = new Set();
@@ -343,20 +179,26 @@ export class Model {
 
   onChange(fn) { this.listeners.add(fn); }
 
-  get all() { return [...this.shapes, ...this.lines]; }
-  get count() { return this.shapes.length + this.lines.length; }
-  get selected() { return this.all.find((o) => o.id === this.selectedId) ?? null; }
-  byId(id) { return this.all.find((o) => o.id === id) ?? null; }
+  /** Separate pieces (groups of connected edges and faces): "objects" for messages. */
+  get count() {
+    const parent = new Map();
+    const find = (v) => { while (parent.get(v) !== v) v = parent.get(v); return v; };
+    for (const v of this.mesh.vertices.keys()) parent.set(v, v);
+    for (const e of this.mesh.edges.values()) parent.set(find(e.a), find(e.b));
+    let n = 0;
+    for (const v of this.mesh.vertices.keys()) if (find(v) === v) n++;
+    return n;
+  }
 
-  nextId() { return this.all.reduce((m, o) => Math.max(m, o.id), 0) + 1; }
+  get isEmpty() { return this.mesh.edges.size === 0; }
 
   // --- history ---
-  // Each step stores shapes + lines plus, via `extraState`, the person. Extra state is
+  // Each step stores the geometry plus, via `extraState`, the person. Extra state is
   // only restored for steps that changed it (`{ extra: true }`).
   extraState = { get: () => null, set: () => {} };
 
   snapshot(extra) {
-    return { data: JSON.stringify({ shapes: this.shapes, lines: this.lines }), extraValue: this.extraState.get(), extra };
+    return { data: JSON.stringify(this.mesh.toData()), extraValue: this.extraState.get(), extra };
   }
   checkpoint({ extra = false } = {}) {
     this.undoStack.push(this.snapshot(extra));
@@ -365,9 +207,8 @@ export class Model {
   }
   dropCheckpoint() { this.undoStack.pop(); }
   restore(step) {
-    const { shapes, lines } = JSON.parse(step.data);
-    this.shapes = shapes;
-    this.lines = lines;
+    this.mesh = Mesh.fromData(JSON.parse(step.data));
+    this.selection.clear();
     if (step.extra) this.extraState.set(step.extraValue);
     this.sync();
   }
@@ -386,141 +227,146 @@ export class Model {
     return true;
   }
 
-  // --- edits ---
-  /** Add a shape (one undo step). Returns its id, or null if invalid. */
-  addShape(raw) {
-    const s = cleanShape(raw);
-    if (!s) return null;
+  /** Change the geometry as one undo step: `fn(mesh)`; returns its result. */
+  edit(fn) {
     this.checkpoint();
-    s.id = this.nextId();
-    this.shapes.push(s);
+    const result = fn(this.mesh);
     this.sync();
-    return s.id;
-  }
-
-  addLine(points) {
-    const l = cleanLine({ points });
-    if (!l) return null;
-    this.checkpoint();
-    l.id = this.nextId();
-    this.lines.push(l);
-    this.sync();
-    return l.id;
-  }
-
-  /** Replace a shape's data without a history step (live editing; call sync yourself). */
-  setShape(id, data) {
-    const i = this.shapes.findIndex((s) => s.id === id);
-    if (i >= 0) this.shapes[i] = { ...data, id };
-  }
-
-  update(id, patch) {
-    const s = this.shapes.find((o) => o.id === id);
-    if (!s) return;
-    const next = cleanShape({ ...s, ...patch });
-    if (!next) return;
-    this.checkpoint();
-    this.setShape(id, next);
-    this.sync();
-  }
-
-  remove(id) {
-    this.checkpoint();
-    this.shapes = this.shapes.filter((o) => o.id !== id);
-    this.lines = this.lines.filter((o) => o.id !== id);
-    this.sync();
+    return result;
   }
 
   /** Remove everything; with `extra`, the step also records the person (see clearScene in main). */
   clear({ extra = false } = {}) {
     this.checkpoint({ extra });
-    this.shapes = [];
-    this.lines = [];
+    this.mesh = new Mesh();
+    this.selection.clear();
     this.sync();
   }
 
-  /**
-   * Start over with data from a file (fresh undo history). Accepts
-   * { shapes, lines } and, from older files, { walls }. Returns the object count.
-   */
+  /** Start over with data from a file (fresh undo history). Returns the object count. */
   replaceAll(data) {
-    const shapes = [
-      ...(Array.isArray(data?.shapes) ? data.shapes.map(cleanShape).filter(Boolean) : []),
-      ...wallsToShapes(data?.walls),
-    ];
-    const lines = Array.isArray(data?.lines) ? data.lines.map(cleanLine).filter(Boolean) : [];
-    let id = 1;
-    for (const o of [...shapes, ...lines]) o.id = id++;
+    this.mesh = meshFromData(data);
     this.undoStack = [];
     this.redoStack = [];
-    this.shapes = shapes;
-    this.lines = lines;
-    this.selectedId = null;
+    this.selection.clear();
     this.sync();
     return this.count;
   }
 
   /** Plain data for saving. */
-  toData() {
-    const strip = ({ id, ...rest }) => rest;
-    return { shapes: this.shapes.map(strip), lines: this.lines.map(strip) };
-  }
+  toData() { return { geometry: this.mesh.toData() }; }
 
-  select(id) {
-    this.selectedId = id;
+  // --- selection ---
+  get selectedFaces() { return [...this.selection].filter((k) => k[0] === 'f').map((k) => +k.slice(1)); }
+  get selectedEdges() { return [...this.selection].filter((k) => k[0] === 'e').map((k) => +k.slice(1)); }
+
+  /** mode: 'replace' | 'add' | 'toggle' */
+  select(keys, mode = 'replace') {
+    if (mode === 'replace') this.selection = new Set(keys);
+    else if (mode === 'add') keys.forEach((k) => this.selection.add(k));
+    else {
+      const all = keys.every((k) => this.selection.has(k));
+      keys.forEach((k) => (all ? this.selection.delete(k) : this.selection.add(k)));
+    }
     this.sync(false);
   }
 
+  selectAll() {
+    this.select([...[...this.mesh.faces.keys()].map((f) => `f${f}`), ...[...this.mesh.edges.keys()].map((e) => `e${e}`)]);
+  }
+
+  deleteSelection() {
+    if (!this.selection.size) return;
+    const faces = this.selectedFaces, edges = this.selectedEdges;
+    this.selection.clear();
+    this.edit((m) => m.erase(faces, edges));
+  }
+
+  /** Live colour preview for the selected faces (no history; see commitColor). */
+  previewColor(color) {
+    this.colorsBefore ??= new Map(this.selectedFaces.map((f) => [f, this.mesh.faces.get(f)?.color]));
+    for (const f of this.selectedFaces) { const face = this.mesh.faces.get(f); if (face) face.color = color; }
+    this.sync(false);
+  }
+
+  /** Set the colour of the selected faces as one undo step. */
+  commitColor(color) {
+    // Put the previewed colours back first, so the undo step holds the old ones.
+    for (const [f, c] of this.colorsBefore ?? []) { const face = this.mesh.faces.get(f); if (face && c) face.color = c; }
+    this.colorsBefore = null;
+    this.edit((m) => { for (const f of this.selectedFaces) { const face = m.faces.get(f); if (face) face.color = color; } });
+  }
+
   // --- queries ---
-  /** Points to snap to on the horizontal plane at height y. */
-  verticesAt(y) {
-    const out = [];
-    for (const s of this.shapes) {
-      const levels = [s.base, s.base + s.height];
-      for (const level of levels) {
-        if (Math.abs(level - y) > 1e-3) continue;
-        if (s.kind === 'circle') out.push({ x: s.center.x, z: s.center.z });
-        for (const p of profileOf(s)) out.push(p);
-      }
-    }
-    for (const l of this.lines) for (const p of l.points) if (Math.abs(p.y - y) < 1e-3) out.push(p);
-    return out;
+  boundingBox() {
+    const box = new THREE.Box3();
+    for (const v of this.mesh.vertices.values()) box.expandByPoint(v);
+    return box;
   }
 
-  /** Raycast shapes: { shape, face, point } or null. */
-  pick(raycaster) {
-    const hit = raycaster.intersectObjects(this.group.children, false)[0];
+  /** Raycast faces: { face, point, normal } or null. */
+  pickFace(raycaster) {
+    const hit = raycaster.intersectObjects(this.pickables, false)[0];
     if (!hit) return null;
-    const shape = this.byId(hit.object.userData.id);
     const face = hit.object.userData.faceIds?.[hit.faceIndex];
-    return shape && face ? { shape, face, point: hit.point } : null;
+    if (face == null || !this.mesh.faces.has(face)) return null;
+    return { face, point: hit.point, normal: this.mesh.faceNormal(face), distance: hit.distance };
   }
 
-  /** Raycast open lines: the line or null. */
-  pickLine(raycaster) {
-    raycaster.params.Line.threshold = 0.08;
-    const hit = raycaster.intersectObjects(this.lineGroup.children, false)[0];
-    return hit ? this.byId(hit.object.userData.id) : null;
+  /**
+   * The edge nearest to the mouse on screen (within `px`), not hidden behind a face.
+   * `ndc` = mouse in normalised device coords; `size` = viewport size in px.
+   */
+  pickEdge(raycaster, camera, ndc, size, px = 6) {
+    const faceHit = raycaster.intersectObjects(this.pickables, false)[0];
+    const toScreen = (p) => { const v = p.clone().project(camera); return { x: (v.x + 1) / 2 * size.x, y: (1 - v.y) / 2 * size.y, z: v.z }; };
+    const mouse = { x: (ndc.x + 1) / 2 * size.x, y: (1 - ndc.y) / 2 * size.y };
+    let best = null, bestD = px;
+    for (const [id, e] of this.mesh.edges) {
+      if (e.soft) continue;
+      const A = this.mesh.vertices.get(e.a), B = this.mesh.vertices.get(e.b);
+      const a = toScreen(A), b = toScreen(B);
+      if (a.z > 1 || b.z > 1 || a.z < -1 || b.z < -1) continue;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const t = THREE.MathUtils.clamp(((mouse.x - a.x) * dx + (mouse.y - a.y) * dy) / (dx * dx + dy * dy || 1), 0, 1);
+      const d = Math.hypot(mouse.x - (a.x + t * dx), mouse.y - (a.y + t * dy));
+      if (d >= bestD) continue;
+      const P = A.clone().lerp(B, t);
+      if (faceHit && P.distanceTo(raycaster.ray.origin) > faceHit.distance * 1.01 + 0.02) continue; // behind a face
+      best = { edge: id, point: P };
+      bestD = d;
+    }
+    return best;
   }
 
-  /** Does a person of `radius` at (x, z) collide with a shape that stands in their way? */
+  /** Does a person of `radius` at (x, z) bump into a wall-like face between knee and eye height? */
   blocks(x, z, radius, eyeHeight) {
-    for (const s of this.shapes) {
-      if (s.height < 0.05 || s.base > eyeHeight || s.base + s.height < 0.2) continue;
-      if (s.kind === 'circle') {
-        if (Math.hypot(x - s.center.x, z - s.center.z) < s.radius + radius) return true;
-        continue;
+    const m = this.mesh;
+    const heights = [0.3, eyeHeight * 0.6, eyeHeight];
+    for (const [id, f] of m.faces) {
+      const n = m.faceNormal(id);
+      if (Math.abs(n.y) > 0.95) continue; // floors / ceilings don't block
+      const u = new THREE.Vector3(-n.z, 0, n.x).normalize();
+      for (const h0 of heights) {
+        const h = h0 + 1e-5;
+        // Slice the face at height h: pairs of crossings = solid parts of the face.
+        const cuts = [];
+        for (const l of f.loops) {
+          for (let i = 0; i < l.length; i++) {
+            const p = m.vertices.get(l[i]), q = m.vertices.get(l[(i + 1) % l.length]);
+            if ((p.y - h) * (q.y - h) >= 0) continue;
+            const t = (h - p.y) / (q.y - p.y);
+            cuts.push(new THREE.Vector3().lerpVectors(p, q, t));
+          }
+        }
+        cuts.sort((a, b) => a.dot(u) - b.dot(u));
+        for (let i = 0; i + 1 < cuts.length; i += 2) {
+          const a = cuts[i], b = cuts[i + 1];
+          const dx = b.x - a.x, dz = b.z - a.z;
+          const t = THREE.MathUtils.clamp(((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1), 0, 1);
+          if (Math.hypot(x - (a.x + t * dx), z - (a.z + t * dz)) < radius) return true;
+        }
       }
-      const P = s.points;
-      let inside = false;
-      for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
-        const a = P[i], b = P[j];
-        if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
-        const dx = b.x - a.x, dz = b.z - a.z;
-        const t = THREE.MathUtils.clamp(((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1), 0, 1);
-        if (Math.hypot(x - (a.x + t * dx), z - (a.z + t * dz)) < radius) return true;
-      }
-      if (inside) return true;
     }
     return false;
   }
@@ -528,41 +374,95 @@ export class Model {
   // --- rendering ---
   /** Rebuild scene objects from the data, persist, and notify listeners. */
   sync(save = true) {
-    if (this.selectedId != null && !this.selected) this.selectedId = null;
-    for (const obj of this.objects.values()) {
-      disposeObject(obj);
-      obj.parent?.remove(obj);
+    const m = this.mesh;
+    for (const k of [...this.selection]) {
+      const id = +k.slice(1);
+      if (k[0] === 'f' ? !m.faces.has(id) : !m.edges.has(id)) this.selection.delete(k);
     }
-    this.objects.clear();
+    for (const obj of [...this.group.children]) { obj.geometry?.dispose(); this.group.remove(obj); }
 
-    for (const s of this.shapes) {
-      const { geometry, faceIds } = buildShapeGeometry(s);
-      const flat = s.height < 1e-6;
-      const mesh = new THREE.Mesh(geometry, shapeMaterial(s.color ?? DEFAULT_COLOR, flat));
-      mesh.castShadow = !flat;
-      mesh.receiveShadow = true;
-      mesh.userData = { id: s.id, faceIds };
-      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 20), edgeMat);
-      edges.raycast = () => {};
-      mesh.add(edges);
-      if (s.id === this.selectedId) {
-        const outline = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 20), outlineMat);
-        outline.renderOrder = 5;
-        outline.raycast = () => {};
-        mesh.add(outline);
+    // Smooth groups: faces joined through soft edges share vertex normals.
+    const group = new Map();
+    for (const f of m.faces.keys()) group.set(f, f);
+    const find = (f) => { while (group.get(f) !== f) f = group.get(f); return f; };
+    for (const [id, e] of m.edges) {
+      if (!e.soft) continue;
+      const fs = m.facesOfEdge(id);
+      for (let i = 1; i < fs.length; i++) group.set(find(fs[i]), find(fs[0]));
+    }
+    const groupSize = new Map();
+    for (const f of m.faces.keys()) groupSize.set(find(f), (groupSize.get(find(f)) ?? 0) + 1);
+    const normals = new Map(); // face → normal
+    const smooth = new Map(); // "group|vertex" → summed normal
+    for (const f of m.faces.keys()) {
+      const n = m.faceNormal(f);
+      normals.set(f, n);
+      const g = find(f);
+      for (const v of m.faces.get(f).loops.flat()) {
+        const k = `${g}|${v}`;
+        if (!smooth.has(k)) smooth.set(k, new THREE.Vector3());
+        smooth.get(k).add(n);
       }
-      this.group.add(mesh);
-      this.objects.set(s.id, mesh);
     }
 
-    for (const l of this.lines) {
-      const g = new THREE.BufferGeometry().setFromPoints(l.points.map((p) => new THREE.Vector3(p.x, p.y + FLAT_LIFT, p.z)));
-      const line = new THREE.Line(g, l.id === this.selectedId ? lineSelMat : lineMat);
-      line.userData = { id: l.id };
-      if (l.id === this.selectedId) line.renderOrder = 5;
-      this.lineGroup.add(line);
-      this.objects.set(l.id, line);
+    const buckets = { raised: { pos: [], nor: [], col: [], ids: [] }, normal: { pos: [], nor: [], col: [], ids: [] } };
+    const color = new THREE.Color();
+    for (const [id, f] of m.faces) {
+      const n = normals.get(id);
+      const flatOnGround = Math.abs(n.y) > 0.999 && f.loops[0].every((v) => onGround(m.vertices.get(v)));
+      const b = flatOnGround ? buckets.raised : buckets.normal;
+      const lift = flatOnGround ? FLAT_LIFT : 0;
+      const g = find(id);
+      const soft = groupSize.get(g) > 1;
+      color.set(f.color);
+      if (this.selection.has(`f${id}`)) color.lerp(SELECT_TINT, 0.45);
+      for (const tri of m.faceTriangles(id)) {
+        tri.pts.forEach((p, k) => {
+          b.pos.push(p.x, p.y + lift, p.z);
+          const vn = soft ? smooth.get(`${g}|${tri.ids[k]}`).clone().normalize() : n;
+          b.nor.push(vn.x, vn.y, vn.z);
+          b.col.push(color.r, color.g, color.b);
+        });
+        b.ids.push(id);
+      }
     }
+    this.pickables = [];
+    for (const [key, b] of Object.entries(buckets)) {
+      if (!b.ids.length) continue;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
+      geo.computeBoundingSphere();
+      const mesh = new THREE.Mesh(geo, key === 'raised' ? groundFaceMat : faceMat);
+      mesh.castShadow = key !== 'raised';
+      mesh.receiveShadow = true;
+      mesh.userData.faceIds = b.ids;
+      this.group.add(mesh);
+      this.pickables.push(mesh);
+    }
+
+    const edgePos = [], linePos = [], selEdgePos = [];
+    for (const [id, e] of m.edges) {
+      const A = m.vertices.get(e.a), B = m.vertices.get(e.b);
+      const lift = onGround(A) && onGround(B) ? FLAT_LIFT : 0;
+      const seg = [A.x, A.y + lift, A.z, B.x, B.y + lift, B.z];
+      if (this.selection.has(`e${id}`)) selEdgePos.push(...seg);
+      if (e.soft) continue;
+      (m.facesOfEdge(id).length ? edgePos : linePos).push(...seg);
+    }
+    const addLines = (pos, mat, order = 0) => {
+      if (!pos.length) return;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      const lines = new THREE.LineSegments(geo, mat);
+      lines.raycast = () => {};
+      lines.renderOrder = order;
+      this.group.add(lines);
+    };
+    addLines(edgePos, edgeMat);
+    addLines(linePos, lineMat);
+    addLines(selEdgePos, selEdgeMat, 5);
 
     if (save) this.save();
     this.listeners.forEach((fn) => fn());
@@ -573,23 +473,13 @@ export class Model {
   }
 
   load() {
-    let data = null;
-    try { data = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null'); } catch { /* ignore */ }
+    const read = (key) => { try { return JSON.parse(localStorage.getItem(key) ?? 'null'); } catch { return null; } };
+    let data = read(STORAGE_KEY);
     if (!data) {
-      // First run after the redesign: bring over the walls from the old version.
-      try {
-        const walls = JSON.parse(localStorage.getItem(LEGACY_WALLS_KEY) ?? 'null');
-        if (Array.isArray(walls)) data = { walls };
-      } catch { /* ignore */ }
+      // From older versions: shapes, or walls before that.
+      data = read(LEGACY_SHAPES_KEY);
+      if (!data) { const walls = read(LEGACY_WALLS_KEY); if (Array.isArray(walls)) data = { walls }; }
     }
-    const shapes = [
-      ...(Array.isArray(data?.shapes) ? data.shapes.map(cleanShape).filter(Boolean) : []),
-      ...wallsToShapes(data?.walls),
-    ];
-    const lines = Array.isArray(data?.lines) ? data.lines.map(cleanLine).filter(Boolean) : [];
-    let id = 1;
-    for (const o of [...shapes, ...lines]) o.id = id++;
-    this.shapes = shapes;
-    this.lines = lines;
+    try { this.mesh = meshFromData(data); } catch { this.mesh = new Mesh(); }
   }
 }

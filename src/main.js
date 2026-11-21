@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createGround } from './grid.js';
-import { Model, DEFAULT_COLOR, profileOf } from './model.js';
+import { Model, DEFAULT_COLOR } from './model.js';
 import { createSky } from './sky.js';
 import { createRenderPipeline } from './render.js';
 import { createSceneSettings, pickValid, changedFrom } from './sceneSettings.js';
@@ -153,14 +153,14 @@ function notify(message, isError = false) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (t.hidden = true), isError ? 5000 : 2500);
 }
-const io = createProjectIO({ getScene, setScene, notify });
+const io = createProjectIO({ getScene, setScene, notify, count: () => model.count });
 $('file-open').addEventListener('click', () => { tools.cancel(); io.open(); });
 $('file-save').addEventListener('click', () => io.save());
 
 // Screenshot: render one clean frame (no editing helpers) and save it as PNG.
 function takeScreenshot() {
-  const selected = model.selectedId;
-  if (selected != null) model.select(null); // no selection outline
+  const selected = [...model.selection];
+  if (selected.length) model.select([]); // no selection highlight
   const restoreTools = tools.hideHelpers();
   const restorePerson = person.hideHelpers();
   pipeline.render(camera);
@@ -179,7 +179,7 @@ function takeScreenshot() {
   }, 'image/png');
   restoreTools();
   restorePerson();
-  if (selected != null) model.select(selected);
+  if (selected.length) model.select(selected);
 }
 $('screenshot').addEventListener('click', takeScreenshot);
 
@@ -198,7 +198,7 @@ $('redo').addEventListener('click', () => tools.redo());
 // Clear = reset all scene objects (shapes, lines and the person) as one undo step.
 function clearScene() {
   tools.cancel();
-  if (!model.count && !person.placed) return;
+  if (model.isEmpty && !person.placed) return;
   person.exitEye();
   model.clear({ extra: true });
   person.remove();
@@ -263,70 +263,42 @@ window.addEventListener('keydown', (e) => {
 });
 
 // --- selection card ---
-const selectedShape = () => (model.selected?.kind === 'line' ? null : model.selected);
-$('sel-height').addEventListener('change', (e) => {
-  const s = selectedShape();
-  const v = parseFloat(e.target.value);
-  if (s) model.update(s.id, { height: Number.isFinite(v) && v >= 0 ? v : s.height });
-});
-$('sel-base').addEventListener('change', (e) => {
-  const s = selectedShape();
-  const v = parseFloat(e.target.value);
-  if (s) model.update(s.id, { base: Number.isFinite(v) ? v : s.base });
-});
-$('sel-delete').addEventListener('click', () => model.selected && model.remove(model.selectedId));
-$('sel-close').addEventListener('click', () => model.select(null));
+$('sel-delete').addEventListener('click', () => model.deleteSelection());
+$('sel-close').addEventListener('click', () => model.select([]));
 
 $('set-color').addEventListener('input', (e) => (settings.color = e.target.value));
 
-// Shape colour: preview live while the picker is open, commit one undo step on close.
-let colorBefore = null;
+// Face colour: preview live while the picker is open, commit one undo step on close.
+let pickingColor = false;
 $('sel-color').addEventListener('input', (e) => {
-  const s = selectedShape();
-  if (!s) return;
-  colorBefore ??= s.color ?? DEFAULT_COLOR;
-  s.color = e.target.value;
-  model.sync(false);
+  if (!model.selectedFaces.length) return;
+  pickingColor = true;
+  model.previewColor(e.target.value);
 });
 $('sel-color').addEventListener('change', (e) => {
-  const s = selectedShape();
-  if (!s || colorBefore == null) return;
-  s.color = colorBefore; // restore so the undo snapshot holds the old colour
-  colorBefore = null;
-  model.update(s.id, { color: e.target.value });
+  if (!pickingColor) return;
+  pickingColor = false;
+  model.commitColor(e.target.value);
 });
 
-/** Size text for the selection card: W × D (bounding box), diameter for circles, length for lines. */
-function sizeText(o) {
-  if (o.kind === 'line') {
-    let len = 0;
-    for (let i = 1; i < o.points.length; i++) {
-      const a = o.points[i - 1], b = o.points[i];
-      len += Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
-    }
-    return `${len.toFixed(2)} m`;
-  }
-  if (o.kind === 'circle') return `\u2300 ${(o.radius * 2).toFixed(2)} m`;
-  const P = profileOf(o);
-  const xs = P.map((p) => p.x), zs = P.map((p) => p.z);
-  return `${(Math.max(...xs) - Math.min(...xs)).toFixed(2)} \u00d7 ${(Math.max(...zs) - Math.min(...zs)).toFixed(2)} m`;
+/** Selection summary: area of one face, length of one edge, else counts. */
+function selectionSummary(faces, edges) {
+  const m = model.mesh;
+  if (faces.length === 1 && !edges.length) return ['f.area', `${m.faceArea(faces[0]).toFixed(2)} m\u00b2`];
+  if (edges.length === 1 && !faces.length) return ['f.length', `${m.edgeLength(edges[0]).toFixed(2)} m`];
+  return ['f.selected', t('sel.counts', { f: faces.length, e: edges.length })];
 }
 
 function refreshUI() {
-  const o = model.selected;
-  $('sel-panel').hidden = !o;
-  if (o) {
-    const isLine = o.kind === 'line';
-    const title = $('sel-title');
-    title.dataset.i18n = isLine ? 'card.selectedLine' : 'card.selectedShape';
-    title.textContent = t(title.dataset.i18n);
-    $('sel-size').textContent = sizeText(o);
-    for (const id of ['sel-row-height', 'sel-row-base', 'sel-row-color']) $(id).hidden = isLine;
-    if (!isLine) {
-      if (document.activeElement !== $('sel-height')) $('sel-height').value = +o.height.toFixed(3);
-      if (document.activeElement !== $('sel-base')) $('sel-base').value = +o.base.toFixed(3);
-      if (colorBefore == null) $('sel-color').value = o.color ?? DEFAULT_COLOR;
-    }
+  const faces = model.selectedFaces, edges = model.selectedEdges;
+  $('sel-panel').hidden = !faces.length && !edges.length;
+  if (faces.length || edges.length) {
+    const [key, text] = selectionSummary(faces, edges);
+    $('sel-size-label').dataset.i18n = key;
+    $('sel-size-label').textContent = t(key);
+    $('sel-size').textContent = text;
+    $('sel-row-color').hidden = !faces.length;
+    if (faces.length && !pickingColor) $('sel-color').value = model.mesh.faces.get(faces[0]).color ?? DEFAULT_COLOR;
   }
   $('undo').disabled = !model.undoStack.length;
   $('redo').disabled = !model.redoStack.length;
@@ -366,8 +338,7 @@ function homeView() {
   $('view').classList.remove('active');
   setTip($('view'), t('top.view.tip'));
 
-  const box = new THREE.Box3();
-  for (const obj of [...model.group.children, ...model.lineGroup.children]) box.expandByObject(obj);
+  const box = model.boundingBox();
   const p = person.getState();
   if (p.placed) {
     box.expandByPoint(new THREE.Vector3(p.x, 0, p.z));
@@ -451,7 +422,7 @@ function getScene() {
   const parallel = camera === ortho;
   const orbit = parallel ? { position: perspEquivalentPosition(), target: controls.target } : person.orbitView();
   return {
-    ...model.toData(), // shapes, lines
+    ...model.toData(), // geometry
     // A person that isn't placed has nothing worth saving except changed height / speed.
     person: changedFrom(person.defaults, p.placed ? p : { ...person.defaults, height: p.height, speed: p.speed }),
     environment: environment.getChanged(),
@@ -470,7 +441,7 @@ function setScene(data) {
   tools.cancel();
   tools.setTool('select');
   person.setState(data.person); // also leaves eye view
-  const count = model.replaceAll(data); // also converts walls from older files
+  const count = model.replaceAll(data); // also converts shapes / walls from older files
   environment.set(data.environment);
 
   Object.assign(grid, pickValid(GRID_DEFAULTS, data.grid));
@@ -511,6 +482,7 @@ window.addEventListener('keydown', (e) => {
   if (mod && k === 'y') { e.preventDefault(); tools.redo(); return; }
   if (mod && k === 's') { e.preventDefault(); io.save(); return; }
   if (mod && k === 'o') { e.preventDefault(); tools.cancel(); io.open(); return; }
+  if (mod && k === 'a') { e.preventDefault(); tools.setTool('select'); model.selectAll(); return; }
   if (mod) return;
   if (person.isMoveKey(k)) return; // WASD / arrows walk in eye view
   if (k === 'v') tools.setTool('select');
@@ -527,9 +499,9 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'escape') {
     if (tools.cancel()) return;
     if (person.eye) person.exitEye();
-    else model.select(null);
+    else model.select([]);
   }
-  else if ((k === 'delete' || k === 'backspace') && model.selected) model.remove(model.selectedId);
+  else if (k === 'delete' || k === 'backspace') model.deleteSelection();
 });
 
 // --- render loop ---

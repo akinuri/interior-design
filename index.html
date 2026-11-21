@@ -137,15 +137,13 @@
     <aside class="panel selection">
       <div id="sel-panel" class="card" hidden>
         <div class="card-header">
-          <span id="sel-title" data-i18n="card.selectedShape">Selected shape</span>
+          <span id="sel-title" data-i18n="card.selection">Selection</span>
           <button id="sel-close" class="card-close" data-i18n-title="btn.deselect.tip" data-i18n-aria="btn.deselect">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
           </button>
         </div>
         <div class="card-body">
-          <label><span data-i18n="f.size">Size</span> <output id="sel-size"></output></label>
-          <label id="sel-row-height"><span data-i18n="f.height">Height (m)</span> <input id="sel-height" type="number" step="0.05" min="0" /></label>
-          <label id="sel-row-base"><span data-i18n="f.elevation">Elevation (m)</span> <input id="sel-base" type="number" step="0.05" /></label>
+          <label><span id="sel-size-label" data-i18n="f.selected">Selected</span> <output id="sel-size"></output></label>
           <label id="sel-row-color"><span data-i18n="f.color">Color</span> <input id="sel-color" type="color" /></label>
           <button id="sel-delete" class="danger" data-i18n="btn.delete">Delete</button>
         </div>
@@ -170,29 +168,30 @@
           <li><span data-i18n="help.pushpullTool">Push / Pull</span><span class="k"><kbd>P</kbd></span></li>
           <li><span data-i18n="help.personTool">Person</span><span class="k"><kbd>U</kbd></span></li>
           </ul>
-          <p class="tip" data-i18n="help.toolsTip">Draw a flat shape, then push / pull it into 3D. Person tool: drag while placing to set which way they face.</p>
+          <p class="tip" data-i18n="help.toolsTip">Draw a flat shape on the ground or on any face, then push / pull it into 3D. Person tool: drag while placing to set which way they face.</p>
         </section>
         <section>
           <h4 data-i18n="help.drawing">Drawing</h4>
           <ul>
           <li><span data-i18n="help.linePoints">Line: place points</span><span class="how" data-i18n="help.click">click</span></li>
           <li><span data-i18n="help.closeLoop">Close into a face</span><span class="how" data-i18n="help.clickStart">click the start point</span></li>
-          <li><span data-i18n="help.finishLines">Keep as open lines</span><span class="how" data-i18n-html="help.finishHow">double-click, <span class="k"><kbd>Enter</kbd></span> or right-click</span></li>
+          <li><span data-i18n="help.finishLines">Stop drawing lines</span><span class="how" data-i18n-html="help.finishHow">double-click, <span class="k"><kbd>Enter</kbd></span> or right-click</span></li>
           <li><span data-i18n="help.rectCorners">Rectangle: two corners</span><span class="how" data-i18n="help.clickOrDrag">click-click or drag</span></li>
           <li><span data-i18n="help.circleSteps">Circle: centre, then radius</span><span class="how" data-i18n="help.clickOrDrag">click-click or drag</span></li>
           <li><span data-i18n="help.shiftLock">Line 45° / square rectangle</span><span class="k"><kbd>Shift</kbd></span></li>
           <li><span data-i18n="help.cancel">Cancel</span><span class="k"><kbd>Esc</kbd></span></li>
           </ul>
-          <p class="tip" data-i18n="help.drawingTip">Shapes are drawn on the ground, or on the top face under the cursor. Points snap to the grid and to corners; the cursor ring turns orange on a corner.</p>
+          <p class="tip" data-i18n="help.drawingTip">Draw on the ground or on the face under the cursor (walls too). Lines across a face split it; closed loops become faces. Points snap to corners (orange ring), midpoints (teal), edges (pink) and the grid.</p>
         </section>
         <section>
           <h4 data-i18n="help.pushpull">Push / Pull</h4>
           <ul>
           <li><span data-i18n="help.grabFace">Move a face</span><span class="how" data-i18n="help.dragOrClick">drag it, or click, move, click</span></li>
-          <li><span data-i18n="help.topFace">Top / bottom face</span><span class="how" data-i18n="help.changesHeight">changes the height</span></li>
-          <li><span data-i18n="help.sideFace">Side face</span><span class="how" data-i18n="help.movesSide">moves that side (circle: radius)</span></li>
+          <li><span data-i18n="help.topFace">Face of a solid</span><span class="how" data-i18n="help.changesHeight">out adds, in carves</span></li>
+          <li><span data-i18n="help.sideFace">Push to the far side</span><span class="how" data-i18n="help.movesSide">cuts a hole (door, window)</span></li>
           <li><span data-i18n="help.cancelPull">Cancel</span><span class="how" data-i18n-html="help.escOrRight"><span class="k"><kbd>Esc</kbd></span> or right-click</span></li>
           </ul>
+          <p class="tip" data-i18n="help.pushpullTip">A loose face grows a solid and stays as its base. Draw a shape on a face first to push / pull just that part. The distance snaps to the level of other corners.</p>
         </section>
         <section>
           <h4 data-i18n="help.values">Exact values</h4>
@@ -207,12 +206,16 @@
         <section>
           <h4 data-i18n="help.editing">Editing</h4>
           <ul>
-          <li><span data-i18n="help.selectObj">Select a shape or line</span><span class="how" data-i18n="help.clickIt">click it (Select tool)</span></li>
+          <li><span data-i18n="help.selectObj">Select a face or edge</span><span class="how" data-i18n="help.clickIt">click it (Select tool)</span></li>
+          <li><span data-i18n="help.selectNeighbours">… with its edges / faces</span><span class="how" data-i18n="help.doubleClick">double-click</span></li>
+          <li><span data-i18n="help.selectConnected">… with everything connected</span><span class="how" data-i18n="help.tripleClick">triple-click</span></li>
+          <li><span data-i18n="help.selectAddToggle">Add / add or remove</span><span class="how" data-i18n-html="help.addToggleHow"><span class="k"><kbd>Ctrl</kbd></span> / <span class="k"><kbd>Shift</kbd></span> + click</span></li>
+          <li><span data-i18n="help.selectAll">Select all</span><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>A</kbd></span></li>
           <li><span data-i18n="help.deleteObj">Delete selected</span><span class="k"><kbd>Del</kbd></span></li>
           <li><span data-i18n="help.deselect">Deselect</span><span class="k"><kbd>Esc</kbd></span></li>
           <li><span data-i18n="help.undoRedo">Undo / redo</span><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Z</kbd></span>&nbsp;<span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Y</kbd></span></li>
           </ul>
-          <p class="tip" data-i18n="help.editingTip">Height, elevation and colour of the selected shape are in the Selected card.</p>
+          <p class="tip" data-i18n="help.editingTip">Change the colour of the selected faces in the Selection card. Deleting a face keeps its edges; deleting the edge between two flat faces merges them.</p>
         </section>
         <section>
           <h4 data-i18n="help.camera">Camera &amp; views</h4>
