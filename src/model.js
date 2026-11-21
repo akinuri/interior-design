@@ -16,8 +16,6 @@ const LEGACY_SHAPES_KEY = 'interior-design.model.v1';
 const LEGACY_WALLS_KEY = 'interior-design.walls.v1';
 export const DEFAULT_COLOR = '#ffffff';
 export const CIRCLE_SEGMENTS = 48;
-// Faces on the ground sit slightly above it, so the grid never shows through them.
-const FLAT_LIFT = 0.01;
 const onGround = (p) => Math.abs(p.y) < 1e-4;
 
 // --- older formats: shapes (v3) and walls (v1/v2) ----------------------------------------
@@ -149,7 +147,8 @@ const faceMat = new THREE.MeshStandardMaterial({
   // Pushed back slightly in depth so edge lines on their borders win cleanly.
   polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
 });
-// Faces lying on the ground: lifted instead (an offset would let the grid through at shallow angles).
+// Faces lying on the ground: no offset (pushed back, the grid would show through them at
+// shallow angles). They're drawn exactly at ground level; the grid itself is pushed back.
 const groundFaceMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide });
 
 // Back faces can show in their own colour (so a face turned the wrong way stands out), and
@@ -534,13 +533,12 @@ export class Model {
     }
 
     const bucket = () => ({ pos: [], nor: [], col: [], sel: [], ids: [] });
-    const buckets = { raised: bucket(), normal: bucket() };
+    const buckets = { ground: bucket(), normal: bucket() };
     const color = new THREE.Color();
     for (const [id, f] of m.faces) {
       const n = normals.get(id);
       const flatOnGround = Math.abs(n.y) > 0.999 && f.loops[0].every((v) => onGround(m.vertices.get(v)));
-      const b = flatOnGround ? buckets.raised : buckets.normal;
-      const lift = flatOnGround ? FLAT_LIFT : 0;
+      const b = flatOnGround ? buckets.ground : buckets.normal;
       const g = find(id);
       const soft = groupSize.get(g) > 1;
       color.set(f.color);
@@ -548,7 +546,7 @@ export class Model {
       const selected = this.selection.has(`f${id}`) ? 1 : 0;
       for (const tri of m.faceTriangles(id)) {
         tri.pts.forEach((p, k) => {
-          b.pos.push(p.x, p.y + lift, p.z);
+          b.pos.push(p.x, p.y, p.z);
           const vn = soft ? smooth.get(`${g}|${tri.ids[k]}`).clone().normalize() : n;
           b.nor.push(vn.x, vn.y, vn.z);
           b.col.push(color.r, color.g, color.b);
@@ -566,8 +564,8 @@ export class Model {
       geo.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
       geo.setAttribute('aSelected', new THREE.Float32BufferAttribute(b.sel, 1));
       geo.computeBoundingSphere();
-      const mesh = new THREE.Mesh(geo, key === 'raised' ? groundFaceMat : faceMat);
-      mesh.castShadow = key !== 'raised';
+      const mesh = new THREE.Mesh(geo, key === 'ground' ? groundFaceMat : faceMat);
+      mesh.castShadow = key !== 'ground';
       mesh.receiveShadow = true;
       mesh.userData.faceIds = b.ids;
       this.group.add(mesh);
@@ -577,8 +575,7 @@ export class Model {
     const edgePos = [], linePos = [], selEdgePos = [];
     for (const [id, e] of m.edges) {
       const A = m.vertices.get(e.a), B = m.vertices.get(e.b);
-      const lift = onGround(A) && onGround(B) ? FLAT_LIFT : 0;
-      const seg = [A.x, A.y + lift, A.z, B.x, B.y + lift, B.z];
+      const seg = [A.x, A.y, A.z, B.x, B.y, B.z];
       if (e.soft) continue; // smooth edges stay hidden, selected or not
       if (this.selection.has(`e${id}`)) selEdgePos.push(...seg);
       (m.facesOfEdge(id).length ? edgePos : linePos).push(...seg);

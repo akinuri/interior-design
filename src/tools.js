@@ -83,8 +83,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
 
   const setPoints = (obj, pts) => { obj.geometry.dispose(); obj.geometry = new THREE.BufferGeometry().setFromPoints(pts); };
 
-  /** Slightly in front of the plane (more on the ground, where faces are lifted). */
-  const liftOf = (p) => (Math.abs(p.n.y) > 0.999 && Math.abs(p.d) < 1e-4 ? 0.013 : 0.003);
+  /** Slightly in front of the plane, so previews / highlights draw over the faces there. */
+  const liftOf = () => 0.003;
 
   /** Triangulated fill for a polygon on `p`. */
   function fillGeometry(pts, p) {
