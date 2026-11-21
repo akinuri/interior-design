@@ -169,6 +169,9 @@
           </div>
           <label id="sel-row-smooth" data-i18n-title="f.smooth.tip"><span data-i18n="f.smooth">Smooth</span> <output id="sel-smooth-value"></output></label>
           <input id="sel-smooth" type="range" min="0" max="90" step="1" data-i18n-title="f.smooth.tip" />
+          <button id="sel-group" data-i18n="btn.group" data-i18n-title="btn.group.tip">Make group</button>
+          <button id="sel-ungroup" data-i18n="btn.ungroup" data-i18n-title="btn.ungroup.tip">Ungroup</button>
+          <button id="sel-editgroup" data-i18n="btn.editGroup" data-i18n-title="btn.editGroup.tip">Edit group</button>
           <button id="sel-makeface" data-i18n="btn.makeFace" data-i18n-title="btn.makeFace.tip">Make face</button>
           <button id="sel-reverse" data-i18n="btn.reverse" data-i18n-title="btn.reverse.tip">Reverse faces</button>
           <button id="sel-delete" class="danger" data-i18n="btn.delete">Delete</button>
@@ -239,6 +242,8 @@
           <li><span data-i18n="help.selectAddToggle">Add / add or remove</span><span class="how" data-i18n-html="help.addToggleHow"><span class="k"><kbd>Ctrl</kbd></span> / <span class="k"><kbd>Shift</kbd></span> + click</span></li>
           <li><span data-i18n="help.selectLoop">Edge loop / face loop</span><span class="how" data-i18n-html="help.selectLoopHow"><span class="k"><kbd>Alt</kbd></span> + click</span></li>
           <li><span data-i18n="help.selectRing">Edge ring</span><span class="how" data-i18n-html="help.selectRingHow"><span class="k"><kbd>Ctrl</kbd></span> + <span class="k"><kbd>Alt</kbd></span> + click</span></li>
+          <li><span data-i18n="help.groupHelp">Make group / ungroup</span><span class="how" data-i18n-html="help.groupHow"><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>G</kbd></span> / <span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Shift</kbd><span class="plus">+</span><kbd>G</kbd></span></span></li>
+          <li><span data-i18n="help.editGroupHelp">Edit a group / close it</span><span class="how" data-i18n-html="help.editGroupHow">double-click it / <span class="k"><kbd>Esc</kbd></span></span></li>
           <li><span data-i18n="help.selectAll">Select all</span><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>A</kbd></span></li>
           <li><span data-i18n="help.deleteObj">Delete selected</span><span class="k"><kbd>Del</kbd></span></li>
           <li><span data-i18n="help.deselect">Deselect</span><span class="k"><kbd>Esc</kbd></span></li>
@@ -296,6 +301,11 @@
       </div>
     </dialog>
     <!-- Touch: finish / cancel / exact value while drawing or pushing (no keyboard, no right-click). -->
+    <!-- Shown while editing a group. -->
+    <div id="group-bar" class="group-bar" hidden>
+      <span data-i18n="grp.editing">Editing group</span>
+      <button id="group-close" data-i18n="btn.closeGroup" data-i18n-title="btn.closeGroup.tip">Close group</button>
+    </div>
     <div id="draw-actions" class="draw-actions" hidden>
       <input id="act-value" type="text" inputmode="decimal" autocomplete="off" data-i18n-placeholder="act.value" />
       <button id="act-done" data-i18n="act.done">Done</button>

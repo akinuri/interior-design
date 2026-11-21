@@ -244,6 +244,7 @@ button.icon.lang {
 .panel label[hidden], .panel input[hidden], .panel button[hidden] { display: none; }
 
 /* Selection card: Loop / Ring / Grow / Shrink in one row of small buttons. */
+.sel-helpers[hidden] { display: none; }
 .sel-helpers {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -697,6 +698,29 @@ button.icon.lang {
 @media (pointer: coarse) {
   button.icon { width: 40px; height: 40px; }
 }
+
+/* Editing a group: a small bar under the top bar. */
+.group-bar {
+  position: fixed;
+  top: var(--top-bar-bottom, 72px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px 5px 12px;
+  background: var(--card-bg);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  backdrop-filter: blur(12px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 10px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 5;
+}
+.group-bar[hidden] { display: none; }
+.group-bar button { background: #fff; border: 1px solid #d3cfc8; padding: 4px 10px; font-weight: 500; }
 
 .toast {
   position: fixed;

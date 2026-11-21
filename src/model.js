@@ -8,7 +8,12 @@ import { Mesh, shapesToMesh } from './mesh.js';
  * The scene model: edges and faces (see mesh.js), with undo history, rendering,
  * picking and the selection.
  *
- * Selection = a set of keys: 'f<id>' (face) and 'e<id>' (edge).
+ * Selection = a set of keys: 'f<id>' (face) and 'e<id>' (edge) of the mesh being edited,
+ * and 'g<id>' (a whole group, outside group editing).
+ *
+ * Groups: pieces of geometry kept apart (they don't stick to the rest). Each has its own
+ * mesh. Clicking a group selects all of it; while editing one (enterGroup), `mesh` is the
+ * group's and everything else is faded and left alone.
  */
 
 const STORAGE_KEY = 'interior-design.model.v2';
@@ -158,7 +163,7 @@ const faceUniforms = {
   uBackColor: { value: new THREE.Color('#a9b6c8') },
   uSelectTint: { value: new THREE.Color(0x2a6df4) },
   // Selection dots: pattern cell size in device pixels (scaled for high-DPI screens).
-  uDotScale: { value: Math.max(1, Math.round(Math.min(window.devicePixelRatio || 1, 2))) },
+  uDotScale: { value: Math.max(1, Math.round(Math.min(globalThis.devicePixelRatio || 1, 2))) },
   uStyle: { value: 0 }, // face style, see FACE_STYLES
 };
 
@@ -234,6 +239,12 @@ const lineMat = new THREE.LineBasicMaterial({ color: 0x2b2d31 });
 // Selected edges: thick (plain WebGL lines are always 1 px), drawn over the normal edge line.
 const selEdgeMat = new LineMaterial({ color: 0x2a6df4, linewidth: 3.5, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 
+// While editing a group, everything else is faded out.
+const fadedFaceMat = new THREE.MeshStandardMaterial({ color: 0xd9d9d9, roughness: 0.9, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide });
+const fadedEdgeMat = new THREE.LineBasicMaterial({ color: 0x2b2d31, transparent: true, opacity: 0.12, depthWrite: false });
+// A selected group: a blue box around it.
+const groupBoxMat = new LineMaterial({ color: 0x2a6df4, linewidth: 2 });
+
 /** Edge line style (from the Rendering settings). */
 export function setEdgeLines({ visible, opacity }) {
   edgeMat.opacity = opacity;
@@ -246,7 +257,10 @@ export class Model {
   constructor(scene) {
     this.group = new THREE.Group();
     scene.add(this.group);
-    this.mesh = new Mesh();
+    this.root = new Mesh(); // the geometry outside groups
+    this.groups = new Map(); // id → { mesh }
+    this.nextGroupId = 1;
+    this.activeGroup = null; // id of the group being edited, or null
     this.selection = new Set();
     this.undoStack = [];
     this.redoStack = [];
@@ -257,18 +271,29 @@ export class Model {
 
   onChange(fn) { this.listeners.add(fn); }
 
-  /** Separate pieces (groups of connected edges and faces): "objects" for messages. */
+  /** The mesh being edited: the group's while editing one, else the geometry outside groups. */
+  get mesh() { return this.activeGroup != null ? this.groups.get(this.activeGroup).mesh : this.root; }
+  set mesh(m) {
+    if (this.activeGroup != null) this.groups.get(this.activeGroup).mesh = m;
+    else this.root = m;
+  }
+
+  /** All meshes: outside groups first, then each group's. */
+  get meshes() { return [this.root, ...[...this.groups.values()].map((g) => g.mesh)]; }
+
+  /** Separate pieces (connected geometry, each group counts as one): "objects" for messages. */
   get count() {
+    const m = this.root;
     const parent = new Map();
     const find = (v) => { while (parent.get(v) !== v) v = parent.get(v); return v; };
-    for (const v of this.mesh.vertices.keys()) parent.set(v, v);
-    for (const e of this.mesh.edges.values()) parent.set(find(e.a), find(e.b));
-    let n = 0;
-    for (const v of this.mesh.vertices.keys()) if (find(v) === v) n++;
+    for (const v of m.vertices.keys()) parent.set(v, v);
+    for (const e of m.edges.values()) parent.set(find(e.a), find(e.b));
+    let n = this.groups.size;
+    for (const v of m.vertices.keys()) if (find(v) === v) n++;
     return n;
   }
 
-  get isEmpty() { return this.mesh.edges.size === 0; }
+  get isEmpty() { return this.root.edges.size === 0 && this.groups.size === 0; }
 
   // --- history ---
   // Each step stores the geometry plus, via `extraState`, the person. Extra state is
@@ -276,7 +301,8 @@ export class Model {
   extraState = { get: () => null, set: () => {} };
 
   snapshot(extra) {
-    return { data: JSON.stringify(this.mesh.toData()), extraValue: this.extraState.get(), extra };
+    const data = { root: this.root.toData(), groups: [...this.groups].map(([id, g]) => [id, g.mesh.toData()]), active: this.activeGroup };
+    return { data: JSON.stringify(data), extraValue: this.extraState.get(), extra };
   }
   checkpoint({ extra = false } = {}) {
     this.undoStack.push(this.snapshot(extra));
@@ -285,7 +311,11 @@ export class Model {
   }
   dropCheckpoint() { this.undoStack.pop(); }
   restore(step) {
-    this.mesh = Mesh.fromData(JSON.parse(step.data));
+    const data = JSON.parse(step.data);
+    this.root = Mesh.fromData(data.root);
+    this.groups = new Map(data.groups.map(([id, g]) => [id, { mesh: Mesh.fromData(g) }]));
+    this.nextGroupId = Math.max(this.nextGroupId, ...this.groups.keys(), 0) + 1;
+    this.activeGroup = this.groups.has(data.active) ? data.active : null;
     this.selection.clear();
     if (step.extra) this.extraState.set(step.extraValue);
     this.sync();
@@ -316,14 +346,16 @@ export class Model {
   /** Remove everything; with `extra`, the step also records the person (see clearScene in main). */
   clear({ extra = false } = {}) {
     this.checkpoint({ extra });
-    this.mesh = new Mesh();
+    this.root = new Mesh();
+    this.groups.clear();
+    this.activeGroup = null;
     this.selection.clear();
     this.sync();
   }
 
   /** Start over with data from a file (fresh undo history). Returns the object count. */
   replaceAll(data) {
-    this.mesh = meshFromData(data);
+    this.setData(data);
     this.undoStack = [];
     this.redoStack = [];
     this.selection.clear();
@@ -331,8 +363,74 @@ export class Model {
     return this.count;
   }
 
-  /** Plain data for saving. */
-  toData() { return { geometry: this.mesh.toData() }; }
+  /** Plain data for saving: the geometry outside groups, and each group's. */
+  toData() {
+    const groups = [...this.groups.values()].map((g) => ({ geometry: g.mesh.toData() }));
+    return { geometry: this.root.toData(), ...(groups.length ? { groups } : {}) };
+  }
+
+  /** Load saved data (any version; groups since they exist). */
+  setData(data) {
+    this.root = meshFromData(data);
+    this.groups = new Map();
+    this.nextGroupId = 1;
+    for (const g of Array.isArray(data?.groups) ? data.groups : []) {
+      const mesh = Mesh.fromData(g?.geometry);
+      if (mesh.edges.size) this.groups.set(this.nextGroupId++, { mesh });
+    }
+    this.activeGroup = null;
+  }
+
+  // --- groups ---
+  get selectedGroups() { return [...this.selection].filter((k) => k[0] === 'g').map((k) => +k.slice(1)); }
+
+  /** Make the selected faces / edges a group (one undo step). Not inside a group. */
+  groupSelection() {
+    const faces = this.selectedFaces, edges = this.selectedEdges;
+    if (this.activeGroup != null || (!faces.length && !edges.length)) return;
+    this.checkpoint();
+    const mesh = new Mesh();
+    this.root.copyInto(mesh, faces, edges);
+    this.root.removeParts(faces, edges);
+    const id = this.nextGroupId++;
+    this.groups.set(id, { mesh });
+    this.selection = new Set([`g${id}`]);
+    this.sync();
+  }
+
+  /** Turn the selected groups back into plain geometry (one undo step); it stays selected. */
+  ungroupSelection() {
+    const ids = this.selectedGroups;
+    if (!ids.length) return;
+    this.checkpoint();
+    const keys = [];
+    for (const id of ids) {
+      const g = this.groups.get(id).mesh;
+      const { faces, edges } = g.copyInto(this.root, [...g.faces.keys()], [...g.edges.keys()]);
+      this.groups.delete(id);
+      keys.push(...faces.map((f) => `f${f}`), ...edges.map((e) => `e${e}`));
+    }
+    this.selection = new Set(keys);
+    this.sync();
+  }
+
+  /** Edit a group's geometry (everything else fades out). */
+  enterGroup(id) {
+    if (!this.groups.has(id)) return;
+    this.activeGroup = id;
+    this.selection = new Set();
+    this.sync(false);
+  }
+
+  /** Stop editing the group (it stays selected); an emptied group goes away. */
+  exitGroup() {
+    const id = this.activeGroup;
+    if (id == null) return;
+    this.activeGroup = null;
+    if (!this.groups.get(id).mesh.edges.size) this.groups.delete(id);
+    this.selection = new Set(this.groups.has(id) ? [`g${id}`] : []);
+    this.sync();
+  }
 
   // --- selection ---
   get selectedFaces() { return [...this.selection].filter((k) => k[0] === 'f').map((k) => +k.slice(1)); }
@@ -350,20 +448,32 @@ export class Model {
   }
 
   selectAll() {
-    this.select([...[...this.mesh.faces.keys()].map((f) => `f${f}`), ...[...this.mesh.edges.keys()].map((e) => `e${e}`)]);
+    const groups = this.activeGroup == null ? [...this.groups.keys()].map((g) => `g${g}`) : [];
+    this.select([...[...this.mesh.faces.keys()].map((f) => `f${f}`), ...[...this.mesh.edges.keys()].map((e) => `e${e}`), ...groups]);
   }
 
   deleteSelection() {
     if (!this.selection.size) return;
-    const faces = this.selectedFaces, edges = this.selectedEdges;
+    const faces = this.selectedFaces, edges = this.selectedEdges, groups = this.selectedGroups;
     this.selection.clear();
-    this.edit((m) => m.erase(faces, edges));
+    this.checkpoint();
+    for (const id of groups) this.groups.delete(id);
+    if (faces.length || edges.length) this.mesh.erase(faces, edges);
+    this.sync();
+  }
+
+  /** Faces a colour change applies to: the selected faces and all faces of selected groups. */
+  colorTargets() {
+    const out = this.selectedFaces.filter((f) => this.mesh.faces.has(f)).map((f) => [this.mesh, f]);
+    for (const id of this.selectedGroups) { const m = this.groups.get(id)?.mesh; if (m) for (const f of m.faces.keys()) out.push([m, f]); }
+    return out;
   }
 
   /** Live colour preview for the selected faces (no history; see commitColor). */
   previewColor(color) {
-    this.colorsBefore ??= new Map(this.selectedFaces.map((f) => [f, this.mesh.faces.get(f)?.color]));
-    for (const f of this.selectedFaces) { const face = this.mesh.faces.get(f); if (face) face.color = color; }
+    const targets = this.colorTargets();
+    this.colorsBefore ??= targets.map(([m, f]) => [m, f, m.faces.get(f).color]);
+    for (const [m, f] of targets) m.faces.get(f).color = color;
     this.sync(false);
   }
 
@@ -447,26 +557,38 @@ export class Model {
   /** Set the colour of the selected faces as one undo step. */
   commitColor(color) {
     // Put the previewed colours back first, so the undo step holds the old ones.
-    for (const [f, c] of this.colorsBefore ?? []) { const face = this.mesh.faces.get(f); if (face && c) face.color = c; }
+    for (const [m, f, c] of this.colorsBefore ?? []) { const face = m.faces.get(f); if (face && c) face.color = c; }
     this.colorsBefore = null;
-    this.edit((m) => { for (const f of this.selectedFaces) { const face = m.faces.get(f); if (face) face.color = color; } });
+    this.checkpoint();
+    for (const [m, f] of this.colorTargets()) m.faces.get(f).color = color;
+    this.sync();
   }
 
   // --- queries ---
   boundingBox() {
     const box = new THREE.Box3();
-    for (const v of this.mesh.vertices.values()) box.expandByPoint(v);
+    for (const m of this.meshes) for (const v of m.vertices.values()) box.expandByPoint(v);
     return box;
   }
+
+  /** Every point of the geometry (groups included), for framing views. */
+  allPoints() {
+    return this.meshes.flatMap((m) => [...m.vertices.values()].map((v) => v.clone()));
+  }
+
+  /** Meshes to snap to while drawing: everything outside group editing, else the group. */
+  get snapMeshes() { return this.activeGroup != null ? [this.mesh] : this.meshes; }
 
   /** Raycast faces: { face, point, normal } or null. */
   pickFace(raycaster) {
     if (faceStyle === 'wire') return null; // no faces to pick
     const hit = raycaster.intersectObjects(this.pickables, false)[0];
     if (!hit) return null;
-    const face = hit.object.userData.faceIds?.[hit.faceIndex];
-    if (face == null || !this.mesh.faces.has(face)) return null;
-    return { face, point: hit.point, normal: this.mesh.faceNormal(face), distance: hit.distance };
+    const { faceIds, groupId, mesh } = hit.object.userData;
+    const face = faceIds?.[hit.faceIndex];
+    if (face == null || !mesh?.faces.has(face)) return null;
+    // `group`: set when the face belongs to a group that isn't being edited (the group is the pick).
+    return { face, mesh, group: groupId ?? null, point: hit.point, normal: mesh.faceNormal(face), distance: hit.distance };
   }
 
   /**
@@ -504,7 +626,10 @@ export class Model {
 
   /** Does a person of `radius` at (x, z) bump into a wall-like face between knee and eye height? */
   blocks(x, z, radius, eyeHeight) {
-    const m = this.mesh;
+    return this.meshes.some((m) => this.meshBlocks(m, x, z, radius, eyeHeight));
+  }
+
+  meshBlocks(m, x, z, radius, eyeHeight) {
     const heights = [0.3, eyeHeight * 0.6, eyeHeight];
     for (const [id, f] of m.faces) {
       const n = m.faceNormal(id);
@@ -537,12 +662,50 @@ export class Model {
   // --- rendering ---
   /** Rebuild scene objects from the data, persist, and notify listeners. */
   sync(save = true) {
-    const m = this.mesh;
+    if (this.activeGroup != null && !this.groups.has(this.activeGroup)) this.activeGroup = null;
+    const active = this.mesh;
     for (const k of [...this.selection]) {
       const id = +k.slice(1);
-      if (k[0] === 'f' ? !m.faces.has(id) : !m.edges.has(id)) this.selection.delete(k);
+      const ok = k[0] === 'f' ? active.faces.has(id) : k[0] === 'e' ? active.edges.has(id) : this.activeGroup == null && this.groups.has(id);
+      if (!ok) this.selection.delete(k);
     }
     for (const obj of [...this.group.children]) { obj.geometry?.dispose(); this.group.remove(obj); }
+    this.pickables = [];
+
+    const editingGroup = this.activeGroup != null;
+    this.renderMesh(this.root, { active: !editingGroup, faded: editingGroup });
+    for (const [id, g] of this.groups) {
+      const isActive = id === this.activeGroup;
+      this.renderMesh(g.mesh, { active: isActive, faded: editingGroup && !isActive, groupId: isActive ? null : id });
+    }
+    // Selected groups: a blue box around each.
+    const boxPos = [];
+    for (const id of this.selectedGroups) {
+      const box = new THREE.Box3();
+      for (const v of this.groups.get(id).mesh.vertices.values()) box.expandByPoint(v);
+      box.expandByScalar(0.02);
+      const c = (i) => new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z);
+      for (const [a, b] of [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]]) {
+        boxPos.push(...c(a).toArray(), ...c(b).toArray());
+      }
+    }
+    if (boxPos.length) {
+      const lines = new LineSegments2(new LineSegmentsGeometry().setPositions(boxPos), groupBoxMat);
+      lines.raycast = () => {};
+      lines.userData.noAO = true;
+      this.group.add(lines);
+    }
+
+    if (save) this.save();
+    this.listeners.forEach((fn) => fn());
+  }
+
+  /**
+   * Scene objects for one mesh. `active`: the one being edited (selection shows, pickable);
+   * `faded`: drawn faintly (while editing another group); `groupId`: a closed group,
+   * pickable as a whole.
+   */
+  renderMesh(m, { active, faded, groupId = null }) {
 
     // Smooth groups: faces joined through soft edges share vertex normals.
     const group = new Map();
@@ -579,7 +742,7 @@ export class Model {
       const soft = groupSize.get(g) > 1;
       color.set(f.color);
       // Selected faces are tinted in the shader (an overlay would fight the faces in depth).
-      const selected = this.selection.has(`f${id}`) ? 1 : 0;
+      const selected = active && this.selection.has(`f${id}`) ? 1 : 0;
       for (const tri of m.faceTriangles(id)) {
         tri.pts.forEach((p, k) => {
           b.pos.push(p.x, p.y, p.z);
@@ -591,7 +754,6 @@ export class Model {
         b.ids.push(id);
       }
     }
-    this.pickables = [];
     for (const [key, b] of Object.entries(buckets)) {
       if (!b.ids.length) continue;
       const geo = new THREE.BufferGeometry();
@@ -600,12 +762,13 @@ export class Model {
       geo.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
       geo.setAttribute('aSelected', new THREE.Float32BufferAttribute(b.sel, 1));
       geo.computeBoundingSphere();
-      const mesh = new THREE.Mesh(geo, key === 'ground' ? groundFaceMat : faceMat);
-      mesh.castShadow = key !== 'ground';
-      mesh.receiveShadow = true;
-      mesh.userData.faceIds = b.ids;
+      const mesh = new THREE.Mesh(geo, faded ? fadedFaceMat : key === 'ground' ? groundFaceMat : faceMat);
+      mesh.castShadow = key !== 'ground' && !faded;
+      mesh.receiveShadow = !faded;
+      mesh.userData = { faceIds: b.ids, groupId, mesh: m };
+      if (faded) mesh.userData.noAO = true;
       this.group.add(mesh);
-      this.pickables.push(mesh);
+      if (!faded) this.pickables.push(mesh);
     }
 
     const edgePos = [], linePos = [], selEdgePos = [];
@@ -613,7 +776,7 @@ export class Model {
       const A = m.vertices.get(e.a), B = m.vertices.get(e.b);
       const seg = [A.x, A.y, A.z, B.x, B.y, B.z];
       if (e.soft) continue; // smooth edges stay hidden, selected or not
-      if (this.selection.has(`e${id}`)) selEdgePos.push(...seg);
+      if (active && this.selection.has(`e${id}`)) selEdgePos.push(...seg);
       (m.facesOfEdge(id).length ? edgePos : linePos).push(...seg);
     }
     const addLines = (pos, mat, order = 0) => {
@@ -625,8 +788,8 @@ export class Model {
       lines.renderOrder = order;
       this.group.add(lines);
     };
-    addLines(edgePos, edgeMat);
-    addLines(linePos, lineMat);
+    addLines(edgePos, faded ? fadedEdgeMat : edgeMat);
+    addLines(linePos, faded ? fadedEdgeMat : lineMat);
     if (selEdgePos.length) {
       const sel = new LineSegments2(new LineSegmentsGeometry().setPositions(selEdgePos), selEdgeMat);
       sel.raycast = () => {};
@@ -634,9 +797,6 @@ export class Model {
       sel.userData.noAO = true;
       this.group.add(sel);
     }
-
-    if (save) this.save();
-    this.listeners.forEach((fn) => fn());
   }
 
   save() {
@@ -651,6 +811,6 @@ export class Model {
       data = read(LEGACY_SHAPES_KEY);
       if (!data) { const walls = read(LEGACY_WALLS_KEY); if (Array.isArray(walls)) data = { walls }; }
     }
-    try { this.mesh = meshFromData(data); } catch { this.mesh = new Mesh(); }
+    try { this.setData(data); } catch { this.root = new Mesh(); this.groups = new Map(); }
   }
 }

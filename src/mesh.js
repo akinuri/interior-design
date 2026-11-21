@@ -824,6 +824,50 @@ export class Mesh {
     return [...this.edges].filter(([, e]) => e.curve === curve).map(([id]) => id);
   }
 
+  // --- moving parts between meshes (groups) ---
+
+  /**
+   * Copy faces and edges (ids in this mesh) into mesh `dst`; points merge with dst's.
+   * Edge looks (soft, curve) come along. Returns the new ids in dst: { faces, edges }.
+   */
+  copyInto(dst, faceIds, edgeIds) {
+    const vmap = new Map();
+    const v = (id) => { if (!vmap.has(id)) vmap.set(id, dst.addVertex(this.vertices.get(id))); return vmap.get(id); };
+    const cmap = new Map(); // curve ids are per mesh: give copied curves fresh ones
+    const curveOf = (c) => { if (!cmap.has(c)) cmap.set(c, dst.nextId++); return cmap.get(c); };
+    const faces = [], edges = new Set();
+    const copyEdge = (eid) => {
+      const e = this.edges.get(eid);
+      if (!e) return;
+      const ne = dst.addEdge(v(e.a), v(e.b));
+      if (ne == null) return;
+      const t = dst.edges.get(ne);
+      if (e.soft) t.soft = true;
+      if (e.curve) t.curve = curveOf(e.curve);
+      edges.add(ne);
+    };
+    for (const fid of faceIds) {
+      const f = this.faces.get(fid);
+      if (!f) continue;
+      const nf = dst.addFace(f.loops.map((l) => l.map(v)), { normal: this.faceNormal(fid), color: f.color });
+      if (nf != null) faces.push(nf);
+      this.faceEdges(fid).forEach(copyEdge);
+    }
+    edgeIds.forEach(copyEdge);
+    dst.splitCurves();
+    return { faces, edges: [...edges] };
+  }
+
+  /** Remove faces and edges, plus the edges of those faces left without any face. */
+  removeParts(faceIds, edgeIds) {
+    const touched = new Set();
+    for (const f of faceIds) if (this.faces.has(f)) this.faceEdges(f).forEach((e) => touched.add(e));
+    for (const f of faceIds) this.deleteFace(f);
+    for (const e of edgeIds) this.deleteEdge(e);
+    for (const e of touched) if (this.edges.has(e) && !this.facesOfEdge(e).length) this.deleteEdge(e);
+    this.pruneVertices();
+  }
+
   // --- make face ---
 
   /**

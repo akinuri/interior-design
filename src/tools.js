@@ -109,19 +109,19 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   function planeUnder(e) {
     setRay(e);
     const hit = model.pickFace(raycaster);
-    return hit ? model.mesh.facePlane(hit.face) : GROUND;
+    return hit ? hit.mesh.facePlane(hit.face) : GROUND; // a group's face too (the drawing stays outside it)
   }
 
   function snap(raw, p, from) {
     const cam = getCamera();
     // Snap radius grows with distance so it feels the same at any zoom.
     const r = THREE.MathUtils.clamp(0.012 * cam.position.distanceTo(raw), 0.05, 0.6);
-    const m = model.mesh;
+    const meshes = model.snapMeshes;
     const at = (q, kind) => Object.assign(p.project(q), { kind });
 
     // Corners (and the points of the shape being drawn).
     let best = null, bestD = r;
-    for (const v of [...m.vertices.values(), ...chain, ...(anchor ? [anchor] : [])]) {
+    for (const v of [...meshes.flatMap((m) => [...m.vertices.values()]), ...chain, ...(anchor ? [anchor] : [])]) {
       if (!p.has(v, 1e-3)) continue;
       const d = v.distanceTo(raw);
       if (d < bestD) { bestD = d; best = v; }
@@ -129,10 +129,12 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     if (best) return at(best, 'vertex');
     // Midpoints, then anywhere on an edge.
     const inPlane = [];
-    for (const e of m.edges.values()) {
-      if (e.soft) continue;
-      const A = m.vertices.get(e.a), B = m.vertices.get(e.b);
-      if (p.has(A, 1e-3) && p.has(B, 1e-3)) inPlane.push([A, B]);
+    for (const m of meshes) {
+      for (const e of m.edges.values()) {
+        if (e.soft) continue;
+        const A = m.vertices.get(e.a), B = m.vertices.get(e.b);
+        if (p.has(A, 1e-3) && p.has(B, 1e-3)) inPlane.push([A, B]);
+      }
     }
     bestD = r * 0.8;
     for (const [A, B] of inPlane) {
@@ -179,7 +181,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       else {
         setRay(e);
         const hit = model.pickFace(raycaster);
-        hover = hit && model.mesh.canPushPull(hit.face) ? hit.face : null;
+        hover = hit && hit.group == null && model.mesh.canPushPull(hit.face) ? hit.face : null; // not a closed group's
       }
     }
   }
@@ -485,7 +487,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     const size = { x: r.width, y: r.height };
     let edgeHit = model.pickEdge(raycaster, getCamera(), ndc, size, reach);
     let faceHit = model.pickFace(raycaster);
-    if (edgeHit && faceHit && edgeHit.px > sure) {
+    if (edgeHit && faceHit?.group != null && edgeHit.px > sure) edgeHit = null; // a group in front
+    if (edgeHit && faceHit && faceHit.group == null && edgeHit.px > sure) {
       // Further out on a face: the edge wins only if it's clearly closer than the face's
       // other edges, so thin faces (a wall top seen from afar) can still be clicked.
       const others = new Set(m.faceEdges(faceHit.face));
@@ -500,6 +503,14 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   function selectAt(e) {
     const { edgeHit, faceHit } = pickAt(e);
     const m = model.mesh;
+    // A closed group: click selects all of it, double-click opens it for editing.
+    if (faceHit?.group != null) {
+      if (e.detail >= 2 && !e.ctrlKey && !e.metaKey && !e.shiftKey) { model.enterGroup(faceHit.group); return; }
+      model.select([`g${faceHit.group}`], e.ctrlKey || e.metaKey ? 'add' : e.shiftKey ? 'toggle' : 'replace');
+      return;
+    }
+    // Editing a group: a click on empty space (or on the faded rest) closes it.
+    if (!edgeHit && !faceHit && model.activeGroup != null && !e.ctrlKey && !e.metaKey && !e.shiftKey) { model.exitGroup(); return; }
     if (e.altKey) {
       // Alt+click: loop (edge loop / face loop); Ctrl+Alt+click: edge ring. Shift adds.
       if (!edgeHit && !faceHit) return;
@@ -545,7 +556,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     } else if (tool === 'pushpull' && !op) {
       setRay(e);
       const hit = model.pickFace(raycaster);
-      if (hit && model.mesh.canPushPull(hit.face)) { startOp(e, hit); e.stopPropagation(); }
+      if (hit && hit.group == null && model.mesh.canPushPull(hit.face)) { startOp(e, hit); e.stopPropagation(); }
     }
     updatePreview();
   }, true);

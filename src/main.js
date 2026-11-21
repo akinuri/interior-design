@@ -302,6 +302,10 @@ window.addEventListener('keydown', (e) => {
 // --- selection card ---
 $('sel-delete').addEventListener('click', () => model.deleteSelection());
 $('sel-reverse').addEventListener('click', () => model.reverseSelection());
+$('sel-group').addEventListener('click', () => model.groupSelection());
+$('sel-ungroup').addEventListener('click', () => model.ungroupSelection());
+$('sel-editgroup').addEventListener('click', () => model.enterGroup(model.selectedGroups[0]));
+$('group-close').addEventListener('click', () => model.exitGroup());
 $('sel-close').addEventListener('click', () => model.select([]));
 
 $('set-color').value = settings.color;
@@ -311,7 +315,7 @@ tools.onSidesChange(saveDrawing); // circle sides: typed with the Circle tool, s
 // Face colour: preview live while the picker is open, commit one undo step on close.
 let pickingColor = false;
 $('sel-color').addEventListener('input', (e) => {
-  if (!model.selectedFaces.length) return;
+  if (!model.colorTargets().length) return;
   pickingColor = true;
   model.previewColor(e.target.value);
 });
@@ -354,18 +358,25 @@ function selectionSummary(faces, edges) {
     return ['f.length', `${edges.reduce((s, e) => s + m.edgeLength(e), 0).toFixed(2)} m`];
   }
   const part = (n, one, many) => (n ? [t(n === 1 ? one : many, { n })] : []);
-  return ['f.selected', [...part(faces.length, 'sel.face', 'sel.faces'), ...part(edges.length, 'sel.edge', 'sel.edges')].join(', ')];
+  const groups = model.selectedGroups.length;
+  return ['f.selected', [...part(groups, 'sel.group', 'sel.groups'), ...part(faces.length, 'sel.face', 'sel.faces'), ...part(edges.length, 'sel.edge', 'sel.edges')].join(', ')];
 }
 
 function refreshUI() {
-  const faces = model.selectedFaces, edges = model.selectedEdges;
-  $('sel-panel').hidden = !faces.length && !edges.length;
-  if (faces.length || edges.length) {
+  const faces = model.selectedFaces, edges = model.selectedEdges, groups = model.selectedGroups;
+  $('group-bar').hidden = model.activeGroup == null;
+  $('sel-panel').hidden = !faces.length && !edges.length && !groups.length;
+  if (faces.length || edges.length || groups.length) {
+    $('sel-group').hidden = model.activeGroup != null || (!faces.length && !edges.length);
+    $('sel-ungroup').hidden = !groups.length;
+    $('sel-editgroup').hidden = groups.length !== 1;
+    document.querySelector('.sel-helpers').hidden = !faces.length && !edges.length;
     const [key, text] = selectionSummary(faces, edges);
     $('sel-size-label').dataset.i18n = key;
     $('sel-size-label').textContent = t(key);
     $('sel-size').textContent = text;
-    $('sel-row-color').hidden = $('sel-reverse').hidden = !faces.length;
+    $('sel-row-color').hidden = !faces.length && !groups.length;
+    $('sel-reverse').hidden = !faces.length;
     $('sel-makeface').hidden = !model.canMakeFace();
     for (const b of document.querySelectorAll('[data-select="loop"], [data-select="ring"]')) b.disabled = !edges.length;
     const canSmooth = model.smoothingEdges().length > 0;
@@ -375,7 +386,8 @@ function refreshUI() {
       $('sel-smooth').value = String(deg);
       showSmooth(deg);
     }
-    if (faces.length && !pickingColor) $('sel-color').value = model.mesh.faces.get(faces[0]).color ?? DEFAULT_COLOR;
+    const first = model.colorTargets()[0];
+    if (first && !pickingColor) $('sel-color').value = first[0].faces.get(first[1]).color ?? DEFAULT_COLOR;
   }
   $('undo').disabled = !model.undoStack.length;
   $('redo').disabled = !model.redoStack.length;
@@ -511,8 +523,10 @@ function focusView() {
   const ids = new Set();
   for (const f of model.selectedFaces) m.faces.get(f)?.loops.flat().forEach((v) => ids.add(v));
   for (const e of model.selectedEdges) { const edge = m.edges.get(e); if (edge) { ids.add(edge.a); ids.add(edge.b); } }
-  const pts = ids.size ? [...ids].map((v) => m.vertices.get(v).clone()) : [...m.vertices.values()].map((v) => v.clone());
-  if (!ids.size) {
+  const groupPts = model.selectedGroups.flatMap((g) => [...model.groups.get(g).mesh.vertices.values()].map((v) => v.clone()));
+  const some = ids.size || groupPts.length;
+  const pts = some ? [...[...ids].map((v) => m.vertices.get(v).clone()), ...groupPts] : model.allPoints();
+  if (!some) {
     const p = person.getState();
     if (p.placed) pts.push(new THREE.Vector3(p.x, 0, p.z), new THREE.Vector3(p.x, p.height, p.z));
   }
@@ -542,7 +556,7 @@ function homeView() {
   viewBefore = null;
 
   // Everything to frame: the geometry's points and the person.
-  const pts = [...model.mesh.vertices.values()].map((v) => v.clone());
+  const pts = model.allPoints();
   const p = person.getState();
   if (p.placed) pts.push(new THREE.Vector3(p.x, 0, p.z), new THREE.Vector3(p.x, p.height, p.z));
   const box = new THREE.Box3().setFromPoints(pts);
@@ -703,6 +717,7 @@ window.addEventListener('keydown', (e) => {
   if (mod && k === 'y') { e.preventDefault(); tools.redo(); return; }
   if (mod && k === 's') { e.preventDefault(); io.save(); return; }
   if (mod && k === 'o') { e.preventDefault(); tools.cancel(); io.open(); return; }
+  if (mod && k === 'g') { e.preventDefault(); if (e.shiftKey) model.ungroupSelection(); else model.groupSelection(); return; }
   if (mod && k === 'a') { e.preventDefault(); tools.setTool('select'); model.selectAll(); return; }
   if (mod) return;
   if (person.isMoveKey(k)) return; // WASD / arrows walk in eye view
@@ -721,7 +736,8 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'escape') {
     if (tools.cancel()) return;
     if (person.eye) person.exitEye();
-    else model.select([]);
+    else if (model.selection.size) model.select([]);
+    else if (model.activeGroup != null) model.exitGroup();
   }
   else if (k === 'delete' || k === 'backspace') model.deleteSelection();
 });
