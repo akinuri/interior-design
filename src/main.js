@@ -7,6 +7,7 @@ import { createRenderPipeline } from './render.js';
 import { createSceneSettings, pickValid, changedFrom } from './sceneSettings.js';
 import { createTools } from './tools.js';
 import { createPerson } from './person.js';
+import { createOrbitCenter } from './orbitCenter.js';
 import { createProjectIO } from './io.js';
 import { installLogCapture, runDiagnostics, summarize } from './diagnostics.js';
 import { initTooltips, setTip } from './tooltips.js';
@@ -163,6 +164,7 @@ function takeScreenshot() {
   if (selected.length) model.select([]); // no selection highlight
   const restoreTools = tools.hideHelpers();
   const restorePerson = person.hideHelpers();
+  const restoreOrbit = orbitCenter.hide();
   pipeline.render(camera);
   // Read the canvas now, in the same task as the render (the drawing buffer isn't preserved).
   canvas.toBlob((blob) => {
@@ -179,6 +181,7 @@ function takeScreenshot() {
   }, 'image/png');
   restoreTools();
   restorePerson();
+  restoreOrbit();
   if (selected.length) model.select(selected);
 }
 $('screenshot').addEventListener('click', takeScreenshot);
@@ -211,6 +214,21 @@ const num = (input, fallback) => {
   const v = parseFloat(input.value);
   return Number.isFinite(v) && v > 0 ? v : fallback;
 };
+
+// --- orbit centre marker (persisted) ---
+const ORBIT_KEY = 'interior-design.orbitCenter.v1';
+const orbitCenter = createOrbitCenter(scene);
+function setOrbitCenter(on) {
+  orbitCenter.enabled = on;
+  $('view-orbit').checked = on;
+  try { localStorage.setItem(ORBIT_KEY, on ? '1' : '0'); } catch { /* ignore */ }
+}
+{
+  let saved = null;
+  try { saved = localStorage.getItem(ORBIT_KEY); } catch { /* ignore */ }
+  setOrbitCenter(saved !== '0');
+}
+$('view-orbit').addEventListener('change', (e) => setOrbitCenter(e.target.checked));
 
 // --- field of view (persisted) ---
 const FOV_KEY = 'interior-design.fov.v1';
@@ -433,6 +451,7 @@ function getScene() {
     view: {
       fov: persp.fov !== DEFAULT_FOV ? persp.fov : undefined,
       parallel: parallel || undefined,
+      orbitCenter: orbitCenter.enabled ? undefined : false,
       camera: { position: orbit.position.toArray(), target: orbit.target.toArray() },
     },
   };
@@ -467,6 +486,7 @@ function setScene(data) {
   controls.target.fromArray(vec3(data.view?.camera?.target, DEFAULT_CAMERA.target));
   controls.update();
   setParallel(data.view?.parallel === true);
+  setOrbitCenter(data.view?.orbitCenter !== false);
   topView = false;
   $('view').classList.remove('active');
   setTip($('view'), t('top.view.tip'));
@@ -575,6 +595,7 @@ function frame() {
   skyDome.updateEnvironment(renderer, scene);
   ground.update(camera);
   updateMeasureLabel();
+  orbitCenter.update(camera, controls.target, viewport.clientHeight, !person.eye);
   pipeline.render(camera);
 }
 renderer.setAnimationLoop(frame);
