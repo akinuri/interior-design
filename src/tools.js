@@ -624,6 +624,44 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     for (const id of model.selectedEdges) { const e = m.edges.get(id); if (e) { add(m.vertices.get(e.a)); add(m.vertices.get(e.b)); } }
     for (const g of model.selectedGroups) for (const v of model.groups.get(g).mesh.vertices.values()) add(v);
     for (const id of model.selectedMeasurements) { const it = model.measurements.find((x) => x.id === id); if (it) { add(it.a); add(it.b); } }
+
+    // Guides and measurements attached to what moves come along: a guide whose source edge
+    // moves keeps its offset; a measurement end on a moving corner / edge follows it.
+    const moving = new Set(out.map((t) => t.p));
+    const segs = [];
+    for (const mesh of model.meshes) {
+      for (const e of mesh.edges.values()) {
+        const A = mesh.vertices.get(e.a), B = mesh.vertices.get(e.b);
+        if (moving.has(A) && moving.has(B)) segs.push(new THREE.Line3(A, B));
+      }
+    }
+    // Faces that move whole (every corner moves): points on them follow too.
+    const faces = [];
+    for (const mesh of model.meshes) {
+      for (const [fid, f] of mesh.faces) {
+        if (!f.loops.flat().every((v) => moving.has(mesh.vertices.get(v)))) continue;
+        const plane = mesh.facePlane(fid);
+        faces.push({ plane, loops: f.loops.map((l) => l.map((v) => plane.to2D(mesh.vertices.get(v)))) });
+      }
+    }
+    const inPoly = (pt, poly) => {
+      let inside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const a = poly[i], b = poly[j];
+        if ((a.y > pt.y) !== (b.y > pt.y) && pt.x < ((b.x - a.x) * (pt.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+      }
+      return inside;
+    };
+    const tmp = new THREE.Vector3();
+    const onMoving = (q) => [...moving].some((v) => v.distanceToSquared(q) < 1e-8)
+      || segs.some((l) => l.closestPointToPoint(q, true, tmp).distanceToSquared(q) < 1e-8)
+      || faces.some(({ plane, loops }) => {
+        if (!plane.has(q)) return false;
+        const pt = plane.to2D(q);
+        return inPoly(pt, loops[0]) && !loops.slice(1).some((h) => inPoly(pt, h));
+      });
+    for (const g of model.guides) if (g.from && onMoving(g.from)) { add(g.p); add(g.from); }
+    for (const it of model.measurements) { if (onMoving(it.a)) add(it.a); if (onMoving(it.b)) add(it.b); }
     return out;
   }
 
