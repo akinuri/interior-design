@@ -157,10 +157,40 @@ export class Mesh {
       const color = typeof f.color === 'string' && /^#[0-9a-f]{6}$/i.test(f.color) ? f.color : '#ffffff';
       m.addFace(loops, { color });
     }
+    m.splitCurves();
     return m;
   }
 
   clone() { return Mesh.fromData(this.toData()); }
+
+  /**
+   * One curve = one connected run of edges. Edges sharing a curve id but not connected
+   * (e.g. a cylinder's top and bottom rims, from older versions) get separate ids.
+   */
+  splitCurves() {
+    const byCurve = new Map();
+    for (const [id, e] of this.edges) if (e.curve) { if (!byCurve.has(e.curve)) byCurve.set(e.curve, []); byCurve.get(e.curve).push(id); }
+    for (const ids of byCurve.values()) {
+      const left = new Set(ids);
+      let first = true;
+      while (left.size) {
+        // Grow one connected run from any remaining edge.
+        const start = left.values().next().value;
+        left.delete(start);
+        const run = [start];
+        const verts = new Set([this.edges.get(start).a, this.edges.get(start).b]);
+        for (let grew = true; grew;) {
+          grew = false;
+          for (const id of left) {
+            const e = this.edges.get(id);
+            if (verts.has(e.a) || verts.has(e.b)) { left.delete(id); run.push(id); verts.add(e.a); verts.add(e.b); grew = true; }
+          }
+        }
+        if (!first) { const c = this.nextId++; for (const id of run) this.edges.get(id).curve = c; }
+        first = false;
+      }
+    }
+  }
 
   // --- basic edits ---
   /** Vertex at p (an existing one if within EPS). */
@@ -672,6 +702,9 @@ export class Mesh {
     const moved = new Map();
     for (const l of loops) for (const v of l) if (!moved.has(v)) moved.set(v, this.addVertex(this.vertices.get(v).clone().add(offset)));
 
+    // The moved copy of a curve is a curve of its own.
+    const topCurves = new Map();
+    const topCurve = (c) => { if (!topCurves.has(c)) topCurves.set(c, this.nextId++); return topCurves.get(c); };
     const touched = new Set();
     const planes = new Map();
     const addPlane = (fidNew) => { if (fidNew == null) return; const p = this.facePlane(fidNew); planes.set(planeKey(p), p); };
@@ -685,7 +718,7 @@ export class Mesh {
         const side = this.addFace([[a, b, moved.get(b), moved.get(a)]], { normal: out, color: face.color });
         addPlane(side);
         const top = this.edgeBetween(moved.get(a), moved.get(b));
-        if (top != null && curve) this.edges.get(top).curve = curve;
+        if (top != null && curve) this.edges.get(top).curve = topCurve(curve);
         for (const e of [this.edgeBetween(a, b), top, this.edgeBetween(a, moved.get(a))]) if (e != null) touched.add(e);
         // Between two segments of the same curve the side is smooth.
         const prev = edgeProps.get(`${l[(i - 1 + l.length) % l.length]}>${a}`);
@@ -753,6 +786,13 @@ export class Mesh {
     return { faces, edges };
   }
 
+  /** The edges of the curve (drawn circle) edge `eid` belongs to; just `eid` if none. */
+  curveEdges(eid) {
+    const curve = this.edges.get(eid)?.curve;
+    if (!curve) return [eid];
+    return [...this.edges].filter(([, e]) => e.curve === curve).map(([id]) => id);
+  }
+
   /** Faces joined to `fid` through soft edges (one smooth surface). */
   surface(fid) {
     const out = new Set([fid]);
@@ -795,7 +835,8 @@ export function shapesToMesh(shapes, lines, profileOf) {
     const base = s.base ?? 0, h = s.height ?? 0;
     const color = s.color;
     const at = (y) => P.map((p) => m.addVertex(new THREE.Vector3(p.x, y, p.z)));
-    const curve = s.kind === 'circle' ? m.nextId++ : undefined;
+    const curve = s.kind === 'circle' ? m.nextId++ : undefined; // bottom rim
+    const topCurve = s.kind === 'circle' ? m.nextId++ : undefined;
     const bottom = at(base);
     if (h < 1e-6) {
       m.addFace([bottom], { normal: UP, color });
@@ -815,7 +856,7 @@ export function shapesToMesh(shapes, lines, profileOf) {
       m.addFace([[bottom[i], bottom[j], top[j], top[i]]], { normal: out, color });
       if (curve) {
         m.edges.get(m.edgeBetween(bottom[i], bottom[j])).curve = curve;
-        m.edges.get(m.edgeBetween(top[i], top[j])).curve = curve;
+        m.edges.get(m.edgeBetween(top[i], top[j])).curve = topCurve;
         m.edges.get(m.edgeBetween(bottom[i], top[i])).soft = true;
       }
     }

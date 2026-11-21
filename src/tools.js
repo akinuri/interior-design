@@ -456,11 +456,11 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     const mode = e.ctrlKey || e.metaKey ? 'add' : e.shiftKey ? 'toggle' : 'replace';
     if (!edgeHit && !faceHit) { if (mode === 'replace') model.select([]); return; }
     let faces = new Set(), edges = new Set();
-    if (edgeHit) edges.add(edgeHit.edge);
+    if (edgeHit) m.curveEdges(edgeHit.edge).forEach((x) => edges.add(x)); // a circle's edge: the whole circle
     else faces = m.surface(faceHit.face); // a smooth surface (cylinder side) is picked as a whole
     if (e.detail === 2) {
       // Face → its edges; edge → its faces.
-      if (edgeHit) m.facesOfEdge(edgeHit.edge).forEach((f) => faces.add(f));
+      if (edgeHit) for (const x of edges) for (const f of m.facesOfEdge(x)) m.surface(f).forEach((g) => faces.add(g));
       else for (const f of faces) m.faceEdges(f).forEach((x) => { if (!m.edges.get(x).soft) edges.add(x); });
     } else if (e.detail >= 3) {
       ({ faces, edges } = m.connected(faces, edges));

@@ -304,7 +304,12 @@ $('sel-color').addEventListener('change', (e) => {
 function selectionSummary(faces, edges) {
   const m = model.mesh;
   if (faces.length === 1 && !edges.length) return ['f.area', `${m.faceArea(faces[0]).toFixed(2)} m\u00b2`];
-  if (edges.length === 1 && !faces.length) return ['f.length', `${m.edgeLength(edges[0]).toFixed(2)} m`];
+  // One edge, or the edges of one curve (a circle): its length.
+  const curve = m.edges.get(edges[0])?.curve;
+  const oneCurve = edges.length > 1 && curve && edges.every((e) => m.edges.get(e).curve === curve) && edges.length === m.curveEdges(edges[0]).length;
+  if (!faces.length && (edges.length === 1 || oneCurve)) {
+    return ['f.length', `${edges.reduce((s, e) => s + m.edgeLength(e), 0).toFixed(2)} m`];
+  }
   const part = (n, one, many) => (n ? [t(n === 1 ? one : many, { n })] : []);
   return ['f.selected', [...part(faces.length, 'sel.face', 'sel.faces'), ...part(edges.length, 'sel.edge', 'sel.edges')].join(', ')];
 }
