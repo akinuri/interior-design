@@ -319,28 +319,34 @@ export class Model {
 
   /**
    * The edge nearest to the mouse on screen (within `px`), not hidden behind a face.
-   * `ndc` = mouse in normalised device coords; `size` = viewport size in px.
+   * `ndc` = mouse in normalised device coords; `size` = viewport size in px;
+   * `only` (optional) limits the search to some edges. Returns { edge, point, px } or null.
    */
-  pickEdge(raycaster, camera, ndc, size, px = 6) {
-    const faceHit = raycaster.intersectObjects(this.pickables, false)[0];
+  pickEdge(raycaster, camera, ndc, size, px = 6, only = null) {
     const toScreen = (p) => { const v = p.clone().project(camera); return { x: (v.x + 1) / 2 * size.x, y: (1 - v.y) / 2 * size.y, z: v.z }; };
     const mouse = { x: (ndc.x + 1) / 2 * size.x, y: (1 - ndc.y) / 2 * size.y };
-    let best = null, bestD = px;
+    const near = [];
     for (const [id, e] of this.mesh.edges) {
-      if (e.soft) continue;
+      if (e.soft || (only && !only.has(id))) continue;
       const A = this.mesh.vertices.get(e.a), B = this.mesh.vertices.get(e.b);
       const a = toScreen(A), b = toScreen(B);
       if (a.z > 1 || b.z > 1 || a.z < -1 || b.z < -1) continue;
       const dx = b.x - a.x, dy = b.y - a.y;
       const t = THREE.MathUtils.clamp(((mouse.x - a.x) * dx + (mouse.y - a.y) * dy) / (dx * dx + dy * dy || 1), 0, 1);
       const d = Math.hypot(mouse.x - (a.x + t * dx), mouse.y - (a.y + t * dy));
-      if (d >= bestD) continue;
-      const P = A.clone().lerp(B, t);
-      if (faceHit && P.distanceTo(raycaster.ray.origin) > faceHit.distance * 1.01 + 0.02) continue; // behind a face
-      best = { edge: id, point: P };
-      bestD = d;
+      if (d < px) near.push({ edge: id, point: A.clone().lerp(B, t), px: d });
     }
-    return best;
+    near.sort((p, q) => p.px - q.px);
+    // The nearest one that isn't hidden behind a face: aim a ray straight at it.
+    const ray = new THREE.Raycaster();
+    for (const c of near) {
+      const v = c.point.clone().project(camera);
+      ray.setFromCamera(new THREE.Vector2(v.x, v.y), camera);
+      const dist = c.point.clone().sub(ray.ray.origin).dot(ray.ray.direction);
+      const hit = ray.intersectObjects(this.pickables, false)[0];
+      if (!hit || hit.distance > dist - (0.02 + 0.005 * dist)) return c;
+    }
+    return null;
   }
 
   /** Does a person of `radius` at (x, z) bump into a wall-like face between knee and eye height? */

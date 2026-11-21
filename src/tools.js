@@ -426,12 +426,33 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   }, true);
 
   // --- selection (Select tool) ---
-  function selectAt(e) {
+  /** What a click at the pointer would select: { edgeHit } or { faceHit } (or neither). */
+  function pickAt(e) {
     setRay(e);
     const r = canvas.getBoundingClientRect();
     const m = model.mesh;
-    const edgeHit = model.pickEdge(raycaster, getCamera(), ndc, { x: r.width, y: r.height });
-    const faceHit = edgeHit ? null : model.pickFace(raycaster);
+    // Edges are thin: they're hit from this many px away (more for fingers).
+    const touch = e.pointerType === 'touch' || matchMedia('(pointer: coarse)').matches;
+    const reach = touch ? 22 : 12;
+    const sure = touch ? 11 : 6; // this close, the edge always wins
+    const size = { x: r.width, y: r.height };
+    let edgeHit = model.pickEdge(raycaster, getCamera(), ndc, size, reach);
+    let faceHit = model.pickFace(raycaster);
+    if (edgeHit && faceHit && edgeHit.px > sure) {
+      // Further out on a face: the edge wins only if it's clearly closer than the face's
+      // other edges, so thin faces (a wall top seen from afar) can still be clicked.
+      const others = new Set(m.faceEdges(faceHit.face));
+      others.delete(edgeHit.edge);
+      const next = model.pickEdge(raycaster, getCamera(), ndc, size, Infinity, others);
+      if (next && edgeHit.px > next.px * 0.5) edgeHit = null;
+    }
+    if (edgeHit) faceHit = null;
+    return { edgeHit, faceHit };
+  }
+
+  function selectAt(e) {
+    const { edgeHit, faceHit } = pickAt(e);
+    const m = model.mesh;
     const mode = e.ctrlKey || e.metaKey ? 'add' : e.shiftKey ? 'toggle' : 'replace';
     if (!edgeHit && !faceHit) { if (mode === 'replace') model.select([]); return; }
     let faces = new Set(), edges = new Set();
