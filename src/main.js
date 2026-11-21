@@ -5,7 +5,7 @@ import { Model, DEFAULT_COLOR } from './model.js';
 import { createSky } from './sky.js';
 import { createRenderPipeline } from './render.js';
 import { createSceneSettings, pickValid, changedFrom } from './sceneSettings.js';
-import { createTools } from './tools.js';
+import { createTools, MIN_SIDES, MAX_SIDES } from './tools.js';
 import { createPerson } from './person.js';
 import { createOrbitCenter } from './orbitCenter.js';
 import { createProjectIO } from './io.js';
@@ -89,8 +89,16 @@ const environment = createSceneSettings({
 });
 
 // --- model & tools ---
-const NEW_SHAPE_DEFAULTS = { color: DEFAULT_COLOR };
+// Drawing settings (Drawing card), remembered and saved in designs when changed.
+const NEW_SHAPE_DEFAULTS = { color: DEFAULT_COLOR, circleSides: 48 };
+const DRAWING_KEY = 'interior-design.drawing.v1';
 const settings = { ...NEW_SHAPE_DEFAULTS, snap: 0.25 };
+try { Object.assign(settings, pickValid(NEW_SHAPE_DEFAULTS, JSON.parse(localStorage.getItem(DRAWING_KEY) ?? '{}'))); } catch { /* ignore */ }
+const clampSides = (n) => THREE.MathUtils.clamp(Math.round(n), MIN_SIDES, MAX_SIDES);
+settings.circleSides = clampSides(settings.circleSides);
+function saveDrawing() {
+  try { localStorage.setItem(DRAWING_KEY, JSON.stringify(changedFrom(NEW_SHAPE_DEFAULTS, settings) ?? {})); } catch { /* ignore */ }
+}
 const model = new Model(scene);
 const person = createPerson({ scene, camera: persp, controls, canvas, model });
 const tools = createTools({ getCamera: () => camera, canvas, controls, scene, model, settings, person });
@@ -285,7 +293,9 @@ $('sel-delete').addEventListener('click', () => model.deleteSelection());
 $('sel-reverse').addEventListener('click', () => model.reverseSelection());
 $('sel-close').addEventListener('click', () => model.select([]));
 
-$('set-color').addEventListener('input', (e) => (settings.color = e.target.value));
+$('set-color').value = settings.color;
+$('set-color').addEventListener('input', (e) => { settings.color = e.target.value; saveDrawing(); });
+tools.onSidesChange(saveDrawing); // circle sides: typed with the Circle tool, shown at the cursor
 
 // Face colour: preview live while the picker is open, commit one undo step on close.
 let pickingColor = false;
@@ -559,7 +569,9 @@ function setScene(data) {
   applyGrid();
 
   Object.assign(settings, pickValid(NEW_SHAPE_DEFAULTS, data.newShapes ?? data.newWalls)); // older files: wall colour
+  settings.circleSides = clampSides(settings.circleSides);
   $('set-color').value = settings.color;
+  saveDrawing();
 
   const fov = data.view?.fov;
   setFov(Number.isFinite(fov) ? THREE.MathUtils.clamp(fov, 20, 100) : DEFAULT_FOV);

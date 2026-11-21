@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { Mesh, GROUND, triangulate } from './mesh.js';
-import { CIRCLE_SEGMENTS } from './model.js';
+import { t } from './i18n.js';
+
+export const MIN_SIDES = 3;
+export const MAX_SIDES = 360;
 
 /*
  * Tools
@@ -17,6 +20,8 @@ import { CIRCLE_SEGMENTS } from './model.js';
  * Drawing happens on the face under the cursor (any direction: floors, walls, tops),
  * or on the ground. While drawing / pushing, typing a value + Enter sets it exactly:
  *   line = length · rect = width;depth (or width,depth) · circle = radius · push/pull = distance.
+ * Circle sides: with the Circle tool, type a number before the first click (a pause starts
+ * a new number), or a number + "s" while drawing (e.g. 12s, Enter).
  */
 
 const CLICK_TOLERANCE_PX = 5;
@@ -48,6 +53,9 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   let lastPointer = null;
   const toolListeners = new Set();
   const stateListeners = new Set(); // busy / can-finish changes (touch action bar)
+  const sidesListeners = new Set(); // circle side count changed
+  let sidesTyped = ''; // Circle tool, before the first click: digits typed for the side count
+  let sidesTimer = 0;
 
   // Measurement label anchor in world space (read by main's loop).
   const label = { pos: null, text: '' };
@@ -186,8 +194,9 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
 
   function circlePoints(center, radius, p = plane) {
     const pts = [];
-    for (let i = 0; i < CIRCLE_SEGMENTS; i++) {
-      const a = (i / CIRCLE_SEGMENTS) * Math.PI * 2;
+    const n = settings.circleSides;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
       pts.push(center.clone().addScaledVector(p.u, Math.cos(a) * radius).addScaledVector(p.v, Math.sin(a) * radius));
     }
     return pts;
@@ -232,6 +241,12 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       setLabel(labelAt(c[0].clone().add(c[2]).multiplyScalar(0.5)), `${w.toFixed(2)} × ${d.toFixed(2)} m`);
     }
 
+    if (tool === 'circle' && !anchor && cursor) {
+      // Before drawing: how many sides the circle will have (type a number to change it).
+      label.pos = labelAt(cursor);
+      label.text = t('tool.sides', { n: sidesTyped || settings.circleSides }); // live, as digits are typed
+    }
+
     if (tool === 'circle' && anchor && cursor) {
       const radius = anchor.distanceTo(cursor);
       if (radius > 1e-4) {
@@ -241,7 +256,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
         fill.geometry = fillGeometry(ring, p);
         preview.visible = fill.visible = true;
       }
-      setLabel(labelAt(anchor.clone().add(cursor).multiplyScalar(0.5)), `R ${fmt(radius)}`);
+      setLabel(labelAt(anchor.clone().add(cursor).multiplyScalar(0.5)), `R ${fmt(radius)} · ${sidesText()}`);
     }
 
     if (tool === 'pushpull') {
@@ -386,6 +401,9 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   }
 
   function applyTyped() {
+    // Circle: "12s" sets the side count and keeps drawing.
+    const sides = tool === 'circle' && typed.trim().match(/^(\d+)\s*s$/i);
+    if (sides) { typed = ''; setSides(parseInt(sides[1], 10)); return; }
     const nums = parseTyped(tool === 'rect');
     typed = '';
     if (!nums.length) return;
@@ -418,13 +436,41 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   window.addEventListener('keydown', (e) => {
     if (e.target.matches?.('input, select, textarea') || e.ctrlKey || e.metaKey || e.altKey) return;
     const busy = drawing() || !!op;
-    if (!busy) return;
     const consume = () => { e.preventDefault(); e.stopPropagation(); updatePreview(); };
-    if (/^[0-9.,;x× -]$/i.test(e.key) && !(e.key === ' ' && !typed)) { typed += e.key; consume(); return; }
+    if (!busy) {
+      // Circle tool, before the first click: digits set the number of sides, live.
+      // A pause ends the number, so typing again starts a new one.
+      if (tool !== 'circle') return;
+      if (/^[0-9]$/.test(e.key)) sidesTyped = (sidesTyped + e.key).slice(-3);
+      else if (e.key === 'Backspace' && sidesTyped) sidesTyped = sidesTyped.slice(0, -1);
+      else if ((e.key === 'Enter' || e.key === 'Escape') && sidesTyped) { endSidesInput(); consume(); return; }
+      else return;
+      const n = parseInt(sidesTyped, 10);
+      if (n >= MIN_SIDES) setSides(n);
+      clearTimeout(sidesTimer);
+      sidesTimer = setTimeout(() => { endSidesInput(); updatePreview(); }, 1200);
+      consume();
+      return;
+    }
+    const allowed = tool === 'circle' ? /^[0-9.,;x× s-]$/i : /^[0-9.,;x× -]$/i;
+    if (allowed.test(e.key) && !(e.key === ' ' && !typed)) { typed += e.key; consume(); return; }
     if (e.key === 'Backspace' && typed) { typed = typed.slice(0, -1); consume(); return; }
     if (e.key === 'Enter' && typed) { applyTyped(); consume(); return; }
     if (e.key === 'Escape' && typed) { typed = ''; consume(); }
   }, true);
+
+  // --- circle sides ---
+  const sidesText = () => t('tool.sides', { n: settings.circleSides });
+  function setSides(n) {
+    const v = THREE.MathUtils.clamp(Math.round(n), MIN_SIDES, MAX_SIDES);
+    if (v === settings.circleSides) return;
+    settings.circleSides = v;
+    sidesListeners.forEach((fn) => fn(v));
+  }
+  function endSidesInput() {
+    clearTimeout(sidesTimer);
+    sidesTyped = '';
+  }
 
   // --- selection (Select tool) ---
   /** What a click at the pointer would select: { edgeHit } or { faceHit } (or neither). */
@@ -591,6 +637,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     /** Can the current input be finished without another point (a line chain)? */
     get canFinish() { return tool === 'line' && chain.length >= 2; },
     onStateChange(fn) { stateListeners.add(fn); },
+    /** Circle side count changed by typing (fn gets the new count). */
+    onSidesChange(fn) { sidesListeners.add(fn); },
     /** Apply a typed value (touch: the action bar's value field). */
     enterValue(text) {
       typed = String(text);
