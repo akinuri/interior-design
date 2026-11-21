@@ -235,7 +235,7 @@ button.icon.lang {
 /* Selection card: right side, left of the cards column
    (6px gap + 10px scrollbar lane + 6px gap + 210px cards = 232px, then a 16px gap). */
 .panel.selection {
-  top: 12px;
+  top: 72px; /* below the top bar, which can reach this far right */
   right: calc(6px + 10px + 6px + 210px + 16px);
   width: 210px;
 }
