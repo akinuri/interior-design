@@ -446,11 +446,15 @@ function homeView() {
     if (camera === ortho) target = parallelTarget;
     // Centring moved the target sideways, possibly into empty space or below the ground.
     // Keep the camera (and so the framing) and slide the target along the line of sight
-    // to the point nearest the scene's middle, not below the ground.
+    // to eye height (so the side views look at the scene at eye level), but no higher
+    // than the scene itself; else the point nearest the scene's middle.
     const eye = target.clone().addScaledVector(dir, dist);
     const look = dir.clone().negate();
     let along = center.clone().sub(eye).dot(look);
-    if (look.y < -1e-6) along = Math.min(along, eye.y / -look.y); // reaches the ground here
+    if (look.y < -1e-6) {
+      const level = THREE.MathUtils.clamp(person.height * 0.93, 0, Math.max(box.max.y, 0));
+      along = (eye.y - level) / -look.y;
+    }
     target = eye.clone().addScaledVector(look, Math.max(along, 0.5));
     dist = eye.distanceTo(target);
   }
