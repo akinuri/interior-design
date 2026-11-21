@@ -334,6 +334,31 @@ export class Model {
     this.sync(false);
   }
 
+  /** Would filling the selected edges make a face? (A closed loop in one plane, not filled yet.) */
+  canMakeFace() {
+    const edges = this.selectedEdges;
+    if (edges.length < 3 || edges.length > 2000 || !this.mesh.faceableGroups(edges).length) return false;
+    // Try it on a copy (ids survive: fromData keeps their order).
+    const ids = [...this.mesh.edges.keys()];
+    const copy = Mesh.fromData(this.mesh.toData());
+    const copyIds = [...copy.edges.keys()];
+    return copy.makeFaces(edges.map((e) => copyIds[ids.indexOf(e)])).length > 0;
+  }
+
+  /**
+   * Fill the closed loops among the selected edges with faces (one undo step); the new faces
+   * end up selected. Returns how many were made.
+   */
+  makeFaces({ color, towards }) {
+    const edges = this.selectedEdges;
+    this.checkpoint();
+    const made = this.mesh.makeFaces(edges, { color, towards });
+    if (!made.length) { this.dropCheckpoint(); return 0; }
+    this.selection = new Set(made.map((f) => `f${f}`));
+    this.sync();
+    return made.length;
+  }
+
   /** Selection helpers on the current selection: 'loop' | 'ring' (edges), 'grow' | 'shrink'. */
   selectHelper(kind) {
     const m = this.mesh;

@@ -824,6 +824,60 @@ export class Mesh {
     return [...this.edges].filter(([, e]) => e.curve === curve).map(([id]) => id);
   }
 
+  // --- make face ---
+
+  /**
+   * Groups of the given edges that could hold a face: connected, lying in one plane and
+   * containing a closed loop. Returns [{ edges, plane }].
+   */
+  faceableGroups(edgeIds) {
+    const left = new Set(edgeIds.filter((id) => this.edges.has(id)));
+    const groups = [];
+    while (left.size) {
+      const start = left.values().next().value;
+      left.delete(start);
+      const edges = [start];
+      const verts = new Set([this.edges.get(start).a, this.edges.get(start).b]);
+      for (let grew = true; grew;) {
+        grew = false;
+        for (const id of left) {
+          const e = this.edges.get(id);
+          if (verts.has(e.a) || verts.has(e.b)) { left.delete(id); edges.push(id); verts.add(e.a); verts.add(e.b); grew = true; }
+        }
+      }
+      if (edges.length < verts.size) continue; // a tree: no closed loop
+      // A plane through three points that aren't on one line; every point must lie on it.
+      const pts = [...verts].map((v) => this.vertices.get(v));
+      let normal = null;
+      for (let i = 2; i < pts.length && !normal; i++) {
+        const n = pts[1].clone().sub(pts[0]).cross(pts[i].clone().sub(pts[0]));
+        if (n.lengthSq() > 1e-10) normal = n.normalize();
+      }
+      if (!normal) continue;
+      const plane = makePlane(normal, pts[0]);
+      if (pts.every((p) => plane.has(p, 1e-3))) groups.push({ edges, plane });
+    }
+    return groups;
+  }
+
+  /**
+   * Fill the closed loops among the given edges with faces (where there's none yet).
+   * `towards`: a point the new faces should face (e.g. the camera). Returns the new face ids.
+   */
+  makeFaces(edgeIds, { color, towards } = {}) {
+    const created = [];
+    for (const { edges, plane } of this.faceableGroups(edgeIds)) {
+      const before = new Set(this.facesIn(plane));
+      const pt = this.vertices.get(this.edges.get(edges[0]).a);
+      const normal = towards && plane.n.dot(towards.clone().sub(pt)) < 0 ? plane.n.clone().negate() : plane.n.clone();
+      const area = () => this.facesIn(plane).reduce((s, f) => s + this.faceArea(f), 0);
+      const a0 = area();
+      const faces = this.rebuildPlane(plane, { newEdges: new Set(edges), createFaces: true, color, normal });
+      if (area() > a0 + 1e-9) created.push(...faces.filter((f) => !before.has(f)));
+    }
+    return created;
+  }
+
   // --- selection helpers (loops, rings, grow / shrink) ---
 
   /** In a four-sided face, the edge opposite edge `eid`; null for other faces. */
@@ -841,23 +895,26 @@ export class Mesh {
   /**
    * Edge loop: for a face edge, the outline (loop) of the face it bounds that has the most
    * sides (a prism's cap rather than a side); on a tie the flattest face (a box's top).
-   * For a loose line, the whole chain of lines it's part of.
+   * For a loose line, the whole chain of lines it's part of; for an open border (an edge
+   * with a face on one side only, e.g. where a face was deleted), the whole border.
    */
   edgeLoop(eid) {
     const e = this.edges.get(eid);
     if (!e) return [];
     const fs = this.facesOfEdge(eid);
-    if (!fs.length) {
-      // Loose lines: follow the chain through points where exactly two loose lines meet.
+    if (fs.length < 2) {
+      // Follow the chain of edges like this one (same number of faces) through points where
+      // exactly two of them meet.
       const { vertexEdges } = this.index();
+      const kind = fs.length;
       const out = new Set([eid]);
       const queue = [eid];
       while (queue.length) {
         const cur = this.edges.get(queue.pop());
         for (const v of [cur.a, cur.b]) {
-          const loose = (vertexEdges.get(v) ?? []).filter((x) => !this.facesOfEdge(x).length);
-          if (loose.length !== 2) continue;
-          for (const x of loose) if (!out.has(x)) { out.add(x); queue.push(x); }
+          const same = (vertexEdges.get(v) ?? []).filter((x) => this.facesOfEdge(x).length === kind);
+          if (same.length !== 2) continue;
+          for (const x of same) if (!out.has(x)) { out.add(x); queue.push(x); }
         }
       }
       return [...out];

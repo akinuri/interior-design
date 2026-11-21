@@ -68,6 +68,7 @@ const STRINGS = {
     'f.cells2': '2 cells', 'f.cells4': '4 cells', 'f.cells5': '5 cells', 'f.cells10': '10 cells',
     'f.snapCell': 'Grid cell', 'f.snapHalf': '½ cell', 'f.snapOff': 'Off',
     'btn.removePerson': 'Remove person', 'btn.resetScene': 'Reset scene', 'btn.resetRendering': 'Reset rendering',
+    'btn.makeFace': 'Make face', 'btn.makeFace.tip': 'Fill the closed loop of selected edges with a face',
     'btn.reverse': 'Reverse faces', 'btn.reverse.tip': 'Turn the selected faces around (front ↔ back)',
     'btn.delete': 'Delete', 'btn.deselect': 'Deselect', 'btn.deselect.tip': 'Deselect (Esc)',
     // generated scene / rendering controls
@@ -86,6 +87,7 @@ const STRINGS = {
     's.dblclickReset': 'Double-click to reset',
     // messages
     'msg.screenshotSaved': 'Screenshot saved ({w}×{h})', 'msg.screenshotFailed': 'Screenshot failed',
+    'msg.noFace': 'Nothing to fill: those loops already have faces',
     'msg.saved': 'Saved scene ({n} objects)', 'msg.opened': 'Opened {name} ({n} objects)',
     'msg.notJson': "Couldn't read {name}: not a valid JSON file",
     'msg.notDesign': "{name} isn't a design file from this app",
@@ -187,6 +189,7 @@ const STRINGS = {
     'f.cells2': '2 hücre', 'f.cells4': '4 hücre', 'f.cells5': '5 hücre', 'f.cells10': '10 hücre',
     'f.snapCell': 'Izgara hücresi', 'f.snapHalf': '½ hücre', 'f.snapOff': 'Kapalı',
     'btn.removePerson': 'Kişiyi kaldır', 'btn.resetScene': 'Sahneyi sıfırla', 'btn.resetRendering': 'Render ayarlarını sıfırla',
+    'btn.makeFace': 'Yüzey oluştur', 'btn.makeFace.tip': 'Seçili kenarların kapalı döngüsünü bir yüzeyle doldur',
     'btn.reverse': 'Yüzeyleri ters çevir', 'btn.reverse.tip': 'Seçili yüzeyleri ters çevir (ön ↔ arka)',
     'btn.delete': 'Sil', 'btn.deselect': 'Seçimi kaldır', 'btn.deselect.tip': 'Seçimi kaldır (Esc)',
     's.look': 'Stil', 's.look.natural': 'Doğal', 's.look.clean': 'Sade',
@@ -203,6 +206,7 @@ const STRINGS = {
     's.ao': 'Köşe gölgelendirme (AO)', 's.aoReach': 'AO erişimi',
     's.dblclickReset': 'Sıfırlamak için çift tıkla',
     'msg.screenshotSaved': 'Ekran görüntüsü kaydedildi ({w}×{h})', 'msg.screenshotFailed': 'Ekran görüntüsü alınamadı',
+    'msg.noFace': 'Doldurulacak bir şey yok: bu döngülerin zaten yüzeyi var',
     'msg.saved': 'Sahne kaydedildi ({n} nesne)', 'msg.opened': '{name} açıldı ({n} nesne)',
     'msg.notJson': '{name} okunamadı: geçerli bir JSON dosyası değil',
     'msg.notDesign': '{name} bu uygulamaya ait bir tasarım dosyası değil',

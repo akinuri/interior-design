@@ -312,6 +312,10 @@ $('sel-color').addEventListener('change', (e) => {
 
 // Selection helpers (Loop / Ring / Grow / Shrink).
 document.querySelectorAll('[data-select]').forEach((b) => b.addEventListener('click', () => model.selectHelper(b.dataset.select)));
+// Make face: fill closed loops of selected edges.
+$('sel-makeface').addEventListener('click', () => {
+  if (!model.makeFaces({ color: settings.color, towards: camera.position.clone() })) notify(t('msg.noFace'));
+});
 
 // Smooth slider: live while dragging, one undo step on release.
 let smoothing = false;
@@ -351,6 +355,7 @@ function refreshUI() {
     $('sel-size-label').textContent = t(key);
     $('sel-size').textContent = text;
     $('sel-row-color').hidden = $('sel-reverse').hidden = !faces.length;
+    $('sel-makeface').hidden = !model.canMakeFace();
     for (const b of document.querySelectorAll('[data-select="loop"], [data-select="ring"]')) b.disabled = !edges.length;
     const canSmooth = model.smoothingEdges().length > 0;
     $('sel-row-smooth').hidden = $('sel-smooth').hidden = !canSmooth;
