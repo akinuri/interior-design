@@ -4,10 +4,11 @@ A simple 3D interior design app that runs in the browser. Draw flat shapes on an
 
 ## Features
 
-- **Draw shapes**: line (click points; close the loop to make a face), rectangle and circle. Draw on the ground or on top of another shape. Points snap to the grid and to corners.
-- **Push / Pull**: move any face of a shape to give it depth: top / bottom changes the height, a side face moves that side (a circle's side changes its radius).
+- **Edges and faces, like SketchUp**: everything is made of edges and flat faces, and geometry that touches joins up. Closed loops of lines become faces, a line across a face splits it, and a box drawn on a box is one object.
+- **Draw**: line, rectangle and circle, on the ground or on any face (walls too). Points snap to corners, midpoints, edges and the grid.
+- **Push / Pull**: give a face depth. Pulling out adds, pushing in carves, and pushing through to the far side cuts a hole, e.g. a door: draw a rectangle on a wall, then push it through.
 - **Exact values**: type a number while drawing or pushing, then `Enter` (e.g. `2.5` for a length, `4;3` for a rectangle).
-- **Edit**: select a shape to change its height, elevation or colour, or delete it. Designs made with the earlier wall tools open as shapes.
+- **Edit**: select faces and edges (double-click adds neighbours, triple-click everything connected), change their colour, or delete them. Designs from earlier versions (shapes, walls) are converted when opened.
 - **Eye view**: place a person and see the room through their eyes. Walk around with WASD.
 - **Views**: orbit, top view and parallel (orthographic) projection.
 - **Scene and rendering settings**: sky, ground, sun, fog and grid, plus optional realistic rendering (soft shadows, corner shading, sky bounce light).
@@ -32,11 +33,13 @@ Then open the address it prints. A plain static server such as VS Code's Live Se
 | Pan | Right-drag |
 | Zoom | Mouse wheel |
 | Close a line into a face | Click its start point |
-| Keep a line chain open | Double-click, `Enter` or right-click |
+| Stop drawing lines | Double-click, `Enter`, `Esc` or right-click |
 | Line at 45° steps / square rectangle | Hold `Shift` while drawing |
 | Exact length / size / radius / distance | Type the value, then `Enter` |
 | Push / pull a face | Drag it, or click, move, click (`Esc` cancels) |
-| Delete selected shape or line | `Delete` |
+| Select a face or edge / with neighbours / everything connected | Click / double-click / triple-click (Select tool) |
+| Add to / toggle in the selection, select all | `Ctrl`+click / `Shift`+click, `Ctrl+A` |
+| Delete selected | `Delete` |
 | Eye view (walk with WASD, `Shift` to run, `Space` to jump) | `E` |
 | Home (fit scene) / Top view / Parallel projection / Grid on-off | `H` / `T` / `O` / `G` |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Y` |
