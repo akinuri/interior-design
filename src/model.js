@@ -158,6 +158,8 @@ const faceUniforms = {
   uBackOn: { value: 1 },
   uBackColor: { value: new THREE.Color('#a9b6c8') },
   uSelectTint: { value: new THREE.Color(0x2a6df4) },
+  // Selection dots: pattern cell size in device pixels (scaled for high-DPI screens).
+  uDotScale: { value: Math.max(1, Math.round(Math.min(window.devicePixelRatio || 1, 2))) },
 };
 for (const mat of [faceMat, groundFaceMat]) {
   mat.onBeforeCompile = (shader) => {
@@ -172,11 +174,17 @@ for (const mat of [faceMat, groundFaceMat]) {
         '#include <shadowmap_vertex>',
       ].join('\n'));
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uBackOn;\nuniform vec3 uBackColor;\nuniform vec3 uSelectTint;\nvarying float vSelected;')
+      .replace('#include <common>', '#include <common>\nuniform float uBackOn;\nuniform vec3 uBackColor;\nuniform vec3 uSelectTint;\nuniform float uDotScale;\nvarying float vSelected;')
       .replace('#include <color_fragment>', [
         '#include <color_fragment>',
         'if (uBackOn > 0.5 && !gl_FrontFacing) diffuseColor.rgb = uBackColor;',
-        'diffuseColor.rgb = mix(diffuseColor.rgb, uSelectTint, vSelected * 0.45);',
+        // Selected (SketchUp-like): a light blue wash plus a fine pattern of blue dots.
+        'if (vSelected > 0.5) {',
+        '  vec2 cell = mod(floor(gl_FragCoord.xy / uDotScale), 4.0);',
+        '  float dotOn = (cell.x == 0.0 && cell.y == 0.0) || (cell.x == 2.0 && cell.y == 2.0) ? 1.0 : 0.0;',
+        '  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.55, 0.7, 1.0), 0.18);',
+        '  diffuseColor.rgb = mix(diffuseColor.rgb, uSelectTint * 0.6, dotOn * 0.9);',
+        '}',
       ].join('\n'));
   };
 }
