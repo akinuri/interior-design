@@ -26,14 +26,14 @@ export function createOrbitCenter(scene) {
   circle(5.5, BLUE);
   const map = new THREE.CanvasTexture(c);
   map.colorSpace = THREE.SRGBColorSpace;
-  const marker = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthTest: false, depthWrite: false, transparent: true, fog: false }));
+  const marker = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthTest: false, depthWrite: false, transparent: true, opacity: 0.45, fog: false }));
 
   // Drop line and ground ring.
-  const dropMat = new THREE.LineDashedMaterial({ color: BLUE, dashSize: 1, gapSize: 1, depthTest: false, transparent: true, opacity: 0.7, fog: false });
+  const dropMat = new THREE.LineDashedMaterial({ color: BLUE, dashSize: 1, gapSize: 1, depthTest: false, transparent: true, opacity: 0.35, fog: false });
   const drop = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), dropMat);
   const foot = new THREE.Mesh(
     new THREE.RingGeometry(0.32, 0.5, 32).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: BLUE, depthTest: false, transparent: true, opacity: 0.55, side: THREE.DoubleSide, fog: false }),
+    new THREE.MeshBasicMaterial({ color: BLUE, depthTest: false, transparent: true, opacity: 0.25, side: THREE.DoubleSide, fog: false }),
   );
 
   const group = new THREE.Group();
