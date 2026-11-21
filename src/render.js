@@ -18,6 +18,12 @@ export function createRenderPipeline({ renderer, scene, camera }) {
   const ao = new GTAOPass(scene, camera, 1, 1);
   ao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1, thickness: 1, scale: 1, samples: 16, distanceFallOff: 1 });
   ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 4, rings: 2, samples: 16 });
+  // AO already leaves out lines; also leave out overlays drawn as meshes (thick selection lines).
+  const hideLines = ao.overrideVisibility.bind(ao);
+  ao.overrideVisibility = () => {
+    hideLines();
+    scene.traverse((o) => { if (o.userData.noAO) o.visible = false; });
+  };
 
   composer.addPass(renderPass);
   composer.addPass(ao);

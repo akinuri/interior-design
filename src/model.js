@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { Mesh, shapesToMesh } from './mesh.js';
 
 /*
@@ -154,7 +157,8 @@ const edgeMat = new THREE.LineBasicMaterial({ color: 0x2b2d31, transparent: true
 const lineMat = new THREE.LineBasicMaterial({ color: 0x2b2d31 });
 // Selected faces are tinted towards this (an overlay would fight the faces in depth).
 const SELECT_TINT = new THREE.Color(0x2a6df4);
-const selEdgeMat = new THREE.LineBasicMaterial({ color: 0x2a6df4 });
+// Selected edges: thick (plain WebGL lines are always 1 px), drawn over the normal edge line.
+const selEdgeMat = new LineMaterial({ color: 0x2a6df4, linewidth: 3.5, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 
 /** Edge line style (from the Rendering settings). */
 export function setEdgeLines({ visible, opacity }) {
@@ -462,7 +466,13 @@ export class Model {
     };
     addLines(edgePos, edgeMat);
     addLines(linePos, lineMat);
-    addLines(selEdgePos, selEdgeMat, 5);
+    if (selEdgePos.length) {
+      const sel = new LineSegments2(new LineSegmentsGeometry().setPositions(selEdgePos), selEdgeMat);
+      sel.raycast = () => {};
+      sel.renderOrder = 5;
+      sel.userData.noAO = true;
+      this.group.add(sel);
+    }
 
     if (save) this.save();
     this.listeners.forEach((fn) => fn());
