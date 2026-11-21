@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Mesh, GROUND, triangulate } from './mesh.js';
+import { Mesh, GROUND, triangulate, makePlane } from './mesh.js';
 import { t } from './i18n.js';
 import { cm, formatLength, parseLength } from './units.js';
 
@@ -16,6 +16,8 @@ export const MAX_SIDES = 360;
  *  - rect:     two opposite corners (click-click or drag). Shift = square.
  *  - circle:   centre, then radius (click-click or drag).
  *  - pushpull: grab a face and move it along its normal (drag, or click-move-click).
+ *  - move:     move the selection (or what's clicked): click a point, then where it goes
+ *              (or drag). Along the floor; ↑ toggles up / down; Shift locks to X or Z.
  *  - person:   place the person; drag while placing to set the facing direction.
  *
  * Drawing happens on the face under the cursor (any direction: floors, walls, tops),
@@ -45,6 +47,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   let anchor = null; // rect corner / circle centre (THREE.Vector3)
   let anchorPress = false; // anchor was set by the current press (so release = drag end, not 2nd click)
   let op = null; // push/pull in progress
+  let mv = null; // move in progress: { base, targets: [{ p, orig }], exclude, delta, byPress }
+  let moveVertical = false; // Move tool: ↑ toggles moving up / down instead of along the floor
   let hover = null; // push/pull: face id under the cursor
   let cursor = null; // snapped point: THREE.Vector3 with .kind
   let typed = ''; // typed value (measurements box)
@@ -114,7 +118,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     return hit ? hit.mesh.facePlane(hit.face) : GROUND; // a group's face too (the drawing stays outside it)
   }
 
-  function snap(raw, p, from) {
+  function snap(raw, p, from, exclude = null) {
     const cam = getCamera();
     // Snap radius grows with distance so it feels the same at any zoom.
     const r = THREE.MathUtils.clamp(0.012 * cam.position.distanceTo(raw), 0.05, 0.6);
@@ -124,7 +128,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     // Corners (and the points of the shape being drawn).
     let best = null, bestD = r;
     for (const v of [...meshes.flatMap((m) => [...m.vertices.values()]), ...chain, ...(anchor ? [anchor] : [])]) {
-      if (!p.has(v, 1e-3)) continue;
+      if (!p.has(v, 1e-3) || exclude?.has(v)) continue;
       const d = v.distanceTo(raw);
       if (d < bestD) { bestD = d; best = v; }
     }
@@ -135,6 +139,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       for (const e of m.edges.values()) {
         if (e.soft) continue;
         const A = m.vertices.get(e.a), B = m.vertices.get(e.b);
+        if (exclude && (exclude.has(A) || exclude.has(B))) continue;
         if (p.has(A, 1e-3) && p.has(B, 1e-3)) inPlane.push([A, B]);
       }
     }
@@ -186,6 +191,14 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
         cursor = Object.assign(anchor.clone(), { kind: 'angle' });
         cursor[axis] += d[axis];
       }
+    } else if (tool === 'move') {
+      if (mv) updateMove(e);
+      else {
+        // The point to move from: snapped like drawing, on the surface under the cursor.
+        hoverPlane = planeUnder(e);
+        const raw = rayToPlane(e, hoverPlane);
+        if (raw) cursor = snap(raw, hoverPlane, null);
+      }
     } else if (tool === 'pushpull') {
       if (op) updateOp(e);
       else {
@@ -228,7 +241,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     const up = (q) => q.clone().add(lift);
     const labelAt = (q) => q.clone().add(lift).addScaledVector(UP, 0.25);
 
-    if (cursor && (isDrawTool() || tool === 'person')) {
+    if (cursor && (isDrawTool() || tool === 'person' || tool === 'move')) {
       const n = tool === 'person' ? UP : p.n;
       marker.position.copy(cursor).addScaledVector(n, 0.01);
       marker.quaternion.setFromUnitVectors(UP, n);
@@ -257,6 +270,13 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       // Before drawing: how many sides the circle will have (type a number to change it).
       label.pos = labelAt(cursor);
       label.text = t('tool.sides', { n: sidesTyped || settings.circleSides }); // live, as digits are typed
+    }
+
+    if (tool === 'move' && mv && cursor) {
+      setPoints(preview, [mv.base, cursor]);
+      preview.visible = true;
+      label.pos = cursor.clone().addScaledVector(UP, 0.25);
+      label.text = typed ? `${typed}▏` : `${moveVertical ? '↕ ' : ''}${fmt(mv.delta.length())}`;
     }
 
     if (tool === 'measure' && anchor && cursor) {
@@ -450,6 +470,9 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     } else if (tool === 'pushpull' && op) {
       updateOp(null, v);
       commitOp();
+    } else if (tool === 'move' && mv && mv.delta.lengthSq() > 1e-12) {
+      applyMove(mv.delta.clone().normalize().multiplyScalar(v));
+      commitMove();
     }
   }
 
@@ -457,8 +480,15 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   // before the app's shortcuts see them.
   window.addEventListener('keydown', (e) => {
     if (e.target.matches?.('input, select, textarea') || e.ctrlKey || e.metaKey || e.altKey) return;
-    const busy = drawing() || !!op;
+    const busy = drawing() || !!op || !!mv;
     const consume = () => { e.preventDefault(); e.stopPropagation(); updatePreview(); };
+    // Move tool: ↑ switches between moving along the floor and up / down.
+    if (tool === 'move' && e.key === 'ArrowUp') {
+      moveVertical = !moveVertical;
+      if (mv && lastPointer) updateMove(lastPointer);
+      consume();
+      return;
+    }
     if (!busy) {
       // Circle tool, before the first click: digits set the number of sides, live.
       // A pause ends the number, so typing again starts a new one.
@@ -482,6 +512,95 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     if (e.key === 'Enter' && typed) { applyTyped(); consume(); return; }
     if (e.key === 'Escape' && typed) { typed = ''; consume(); }
   }, true);
+
+  // --- move ---
+  /** Points that move with the selection (each once): selected faces / edges, groups, measurements. */
+  function moveTargets() {
+    const out = [], seen = new Set();
+    const add = (p) => { if (p && !seen.has(p)) { seen.add(p); out.push({ p, orig: p.clone() }); } };
+    const m = model.mesh;
+    for (const f of model.selectedFaces) m.faces.get(f)?.loops.flat().forEach((v) => add(m.vertices.get(v)));
+    for (const id of model.selectedEdges) { const e = m.edges.get(id); if (e) { add(m.vertices.get(e.a)); add(m.vertices.get(e.b)); } }
+    for (const g of model.selectedGroups) for (const v of model.groups.get(g).mesh.vertices.values()) add(v);
+    for (const id of model.selectedMeasurements) { const it = model.measurements.find((x) => x.id === id); if (it) { add(it.a); add(it.b); } }
+    return out;
+  }
+
+  /** Nothing selected: Move takes what's under the cursor (as a click with Select would). */
+  function selectUnder(e) {
+    setRay(e);
+    const r = canvas.getBoundingClientRect();
+    const mid = model.pickMeasurement(ndc, getCamera(), { x: r.width, y: r.height });
+    if (mid != null) { model.select([`m${mid}`]); return; }
+    const { edgeHit, faceHit } = pickAt(e);
+    const m = model.mesh;
+    if (faceHit?.group != null) model.select([`g${faceHit.group}`]);
+    else if (edgeHit) model.select(m.curveEdges(edgeHit.edge).map((x) => `e${x}`));
+    else if (faceHit) model.select([...m.surface(faceHit.face)].map((f) => `f${f}`));
+  }
+
+  function startMove(e) {
+    if (!model.selection.size) selectUnder(e);
+    if (!model.selection.size || !cursor) return false;
+    const targets = moveTargets();
+    if (!targets.length) return false;
+    model.checkpoint();
+    mv = { base: cursor.clone(), targets, exclude: new Set(targets.map((t) => t.p)), delta: new THREE.Vector3(), byPress: true };
+    return true;
+  }
+
+  function applyMove(delta) {
+    mv.delta.copy(delta);
+    for (const t of mv.targets) t.p.copy(t.orig).add(delta);
+    model.sync(false);
+  }
+
+  /** Where the moved point goes: along the floor plane (snapping there), or up / down. */
+  function updateMove(e) {
+    let target = null;
+    if (moveVertical) {
+      // A vertical plane through the base point, facing the camera; only the height counts.
+      const look = getCamera().getWorldDirection(new THREE.Vector3());
+      const n = new THREE.Vector3(look.x, 0, look.z);
+      if (n.lengthSq() < 1e-6) n.set(0, 0, 1);
+      const raw = rayToPlane(e, makePlane(n.normalize(), mv.base));
+      if (raw) {
+        let dy = raw.y - mv.base.y;
+        if (settings.snap) dy = Math.round(dy / settings.snap) * settings.snap;
+        target = Object.assign(mv.base.clone(), { kind: 'angle' });
+        target.y += dy;
+      }
+    } else {
+      const floor = makePlane(UP, mv.base);
+      const raw = rayToPlane(e, floor);
+      if (raw) target = snap(raw, floor, null, mv.exclude);
+      if (target && shift) {
+        // Shift: straight along X or Z, whichever it's closer to.
+        const d = target.clone().sub(mv.base);
+        const axis = Math.abs(d.x) >= Math.abs(d.z) ? 'x' : 'z';
+        const locked = Object.assign(mv.base.clone(), { kind: 'angle' });
+        locked[axis] += d[axis];
+        target = locked;
+      }
+    }
+    if (!target) return;
+    cursor = target;
+    applyMove(target.clone().sub(mv.base));
+  }
+
+  function endMove(keep) {
+    if (!mv) return;
+    if (keep && mv.delta.lengthSq() > 1e-12) model.sync(true);
+    else {
+      for (const t of mv.targets) t.p.copy(t.orig);
+      model.dropCheckpoint();
+      model.sync(false);
+    }
+    mv = null;
+    typed = '';
+  }
+  const commitMove = () => endMove(true);
+  const cancelMove = () => endMove(false);
 
   // --- circle sides ---
   const sidesText = () => t('tool.sides', { n: settings.circleSides });
@@ -586,13 +705,15 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       setRay(e);
       const hit = model.pickFace(raycaster);
       if (hit && hit.group == null && model.mesh.canPushPull(hit.face)) { startOp(e, hit); e.stopPropagation(); }
+    } else if (tool === 'move' && !mv) {
+      if (startMove(e)) e.stopPropagation();
     }
     updatePreview();
   }, true);
 
   window.addEventListener('pointermove', (e) => {
     lastPointer = e;
-    if (!aiming && !op && !drawing() && e.target !== canvas) return;
+    if (!aiming && !op && !mv && !drawing() && e.target !== canvas) return;
     updateCursor(e);
     if (aiming && cursor && Math.hypot(aiming.x - cursor.x, aiming.z - cursor.z) > 0.15) person.face(Math.atan2(cursor.z - aiming.z, cursor.x - aiming.x));
     updatePreview();
@@ -609,6 +730,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     if (button === 2 && !moved) {
       // Right-click: stop a line chain; cancel anything else in progress.
       if (op) cancelOp();
+      else if (mv) cancelMove();
       else if (tool === 'line') finishLine();
       else resetDraw();
       updatePreview();
@@ -623,6 +745,9 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     } else if (tool === 'pushpull' && op) {
       if (op.byPress && !moved) op.byPress = false; // click without drag: keep following the mouse
       else commitOp();
+    } else if (tool === 'move' && mv) {
+      if (mv.byPress && !moved) mv.byPress = false; // click, move, click (or drag)
+      else commitMove();
     }
     anchorPress = false;
     updatePreview();
@@ -638,15 +763,16 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   window.addEventListener('keyup', (e) => { if (e.key === 'Shift') { shift = false; refreshFromLastPointer(); } });
 
   model.onChange(() => {
-    if (op) return;
+    if (op || mv) return;
     if (hover != null && !model.mesh.faces.has(hover)) hover = null;
     updatePreview();
   });
 
   // --- public API ---
   function cancel() {
-    const busy = drawing() || !!op;
+    const busy = drawing() || !!op || !!mv;
     cancelOp();
+    cancelMove();
     resetDraw();
     updatePreview();
     return busy;
@@ -656,9 +782,9 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     cancel();
     tool = t;
     hover = null;
-    if (t !== 'select' && model.selection.size) model.select([]);
+    if (t !== 'select' && t !== 'move' && model.selection.size) model.select([]); // Move works on the selection
     controls.mouseButtons.LEFT = t === 'select' ? THREE.MOUSE.ROTATE : null;
-    canvas.style.cursor = t === 'select' ? 'default' : t === 'pushpull' ? 'ns-resize' : 'crosshair';
+    canvas.style.cursor = t === 'select' ? 'default' : t === 'pushpull' ? 'ns-resize' : t === 'move' ? 'move' : 'crosshair';
     toolListeners.forEach((fn) => fn(t));
     updatePreview();
   }
@@ -682,7 +808,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     /** Returns true if something was in progress and got cancelled. */
     cancel,
     /** Something in progress (drawing / pushing)? */
-    get busy() { return drawing() || !!op; },
+    get busy() { return drawing() || !!op || !!mv; },
     /** Can the current input be finished without another point (a line chain)? */
     get canFinish() { return tool === 'line' && chain.length >= 2; },
     onStateChange(fn) { stateListeners.add(fn); },
@@ -700,7 +826,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       updatePreview();
     },
     undo() {
-      if (op) return;
+      if (op || mv) return;
       // While drawing a line, undo takes back the last edge.
       if (chain.length > 1) { model.undo(); chain.pop(); }
       else if (drawing()) resetDraw();
@@ -708,7 +834,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       updatePreview();
     },
     redo() {
-      if (op || drawing()) return;
+      if (op || mv || drawing()) return;
       model.redo();
     },
   };

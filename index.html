@@ -31,6 +31,7 @@
     <!-- Drawing / editing tools: vertical bar on the left edge. -->
     <nav class="tools">
       <button data-tool="select" class="icon" data-i18n-title="tool.select.tip" data-i18n-aria="tool.select"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3.5 18.5 10l-6 1.8L10 18z"/><path d="m12.6 11.9 5 5.6"/></svg></button>
+      <button data-tool="move" class="icon" data-i18n-title="tool.move.tip" data-i18n-aria="tool.move"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18"/><path d="m9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></svg></button>
       <div class="sep" aria-hidden="true"></div>
       <button data-tool="line" class="icon" data-i18n-title="tool.line.tip" data-i18n-aria="tool.line"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19 19 5"/><circle cx="5" cy="19" r="1.6" fill="currentColor"/><circle cx="19" cy="5" r="1.6" fill="currentColor"/></svg></button>
       <button data-tool="rect" class="icon" data-i18n-title="tool.rect.tip" data-i18n-aria="tool.rect"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="0.5"/></svg></button>
@@ -193,6 +194,7 @@
           <h4 data-i18n="help.tools">Tools (left bar)</h4>
           <ul>
           <li><span data-i18n="help.selectTool">Select</span><span class="k"><kbd>V</kbd></span></li>
+          <li><span data-i18n="help.moveTool">Move</span><span class="k"><kbd>W</kbd></span></li>
           <li><span data-i18n="help.lineTool">Line</span><span class="k"><kbd>L</kbd></span></li>
           <li><span data-i18n="help.rectTool">Rectangle</span><span class="k"><kbd>R</kbd></span></li>
           <li><span data-i18n="help.circleTool">Circle</span><span class="k"><kbd>C</kbd></span></li>
@@ -222,6 +224,7 @@
           <li><span data-i18n="help.grabFace">Move a face</span><span class="how" data-i18n="help.dragOrClick">drag it, or click, move, click</span></li>
           <li><span data-i18n="help.topFace">Face of a solid</span><span class="how" data-i18n="help.changesHeight">out adds, in carves</span></li>
           <li><span data-i18n="help.sideFace">Push to the far side</span><span class="how" data-i18n="help.movesSide">cuts a hole (door, window)</span></li>
+          <li><span data-i18n="help.moveHow">Move: a point, then where it goes</span><span class="how" data-i18n-html="help.moveKeys">click-click or drag · <span class="k"><kbd>↑</kbd></span> up / down</span></li>
           <li><span data-i18n="help.cancelPull">Cancel</span><span class="how" data-i18n-html="help.escOrRight"><span class="k"><kbd>Esc</kbd></span> or right-click</span></li>
           </ul>
           <p class="tip" data-i18n="help.pushpullTip">A loose face grows a solid and stays as its base. Draw a shape on a face first to push / pull just that part. The distance snaps to the level of other corners.</p>
