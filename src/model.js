@@ -522,6 +522,12 @@ export class Model {
         const a = toScreen(it.a), b = toScreen(it.b);
         if (caught([a, b], [[a, b]])) keys.push(`m${it.id}`);
       }
+      // Guides with a visible offset label, by that offset measurement (bare infinite lines aren't caught).
+      for (const g of this.guides) {
+        if (!g.from || g.label === false) continue;
+        const a = toScreen(g.from), b = toScreen(g.p);
+        if (caught([a, b], [[a, b]])) keys.push(`u${g.id}`);
+      }
     }
     return keys;
   }
