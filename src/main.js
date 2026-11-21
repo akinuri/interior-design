@@ -600,23 +600,10 @@ function homeView() {
       box.expandByVector(new THREE.Vector3(2, 2, 2).sub(size).max(new THREE.Vector3()).multiplyScalar(0.5));
       for (let i = 0; i < 8; i++) pts.push(new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z));
     }
-    const center = box.getCenter(new THREE.Vector3());
-    let parallelTarget;
-    ({ target, dist, fitHeight, parallelTarget } = fitView(pts, center, dir));
-    if (camera === ortho) target = parallelTarget;
-    // Centring moved the target sideways, possibly into empty space or below the ground.
-    // Keep the camera (and so the framing) and slide the target along the line of sight
-    // to eye height (so the side views look at the scene at eye level), but no higher
-    // than the scene itself; else the point nearest the scene's middle.
-    const eye = target.clone().addScaledVector(dir, dist);
-    const look = dir.clone().negate();
-    let along = center.clone().sub(eye).dot(look);
-    if (look.y < -1e-6) {
-      const level = THREE.MathUtils.clamp(person.height * 0.93, 0, Math.max(box.max.y, 0));
-      along = (eye.y - level) / -look.y;
-    }
-    target = eye.clone().addScaledVector(look, Math.max(along, 0.5));
-    dist = eye.distanceTo(target);
+    // Like Focus with nothing selected, from the home angle: orbit around the middle of
+    // everything, at the distance that fits it all in view.
+    target = box.getCenter(new THREE.Vector3());
+    ({ dist, fitHeight } = fitView(pts, target, dir, { recenter: false }));
   }
   const zoom = camera === ortho ? orthoViewHeight / fitHeight : undefined;
   flyTo(target.clone().addScaledVector(dir, dist), target.clone(), zoom, { duration: 1.0, easeInOut: true });
