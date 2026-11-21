@@ -427,16 +427,19 @@ controls.addEventListener('end', () => {
  * (the target moves sideways / up-down to centre it). Returns { target, dist, fitHeight }
  * (fitHeight: the world height a parallel view should show).
  */
-function fitView(pts, center, dir) {
+function fitView(pts, center, dir, { recenter = true } = {}) {
   const FILL = 0.86; // the outline fills this much of the view (a thin margin around it)
   const vHalf = THREE.MathUtils.degToRad(persp.fov) / 2;
   const tanV = Math.tan(vHalf) * FILL, tanH = Math.tan(vHalf) * persp.aspect * FILL;
-  const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), dir).normalize();
+  const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), dir);
+  if (right.lengthSq() < 1e-8) right.set(1, 0, 0); // looking straight down / up
+  right.normalize();
   const up = new THREE.Vector3().crossVectors(dir, right);
   const target = center.clone();
   let dist = 0;
   // A few rounds: fit the distance, then shift the target to centre the outline.
-  for (let round = 0; round < 8; round++) {
+  // (recenter = false: the target stays at `center`, the outline may sit off-centre.)
+  for (let round = 0; recenter && round < 8; round++) {
     const cam = pts.map((q) => { const c = q.clone().sub(target); return { x: c.dot(right), y: c.dot(up), z: c.dot(dir) }; });
     dist = Math.max(...cam.map((c) => Math.max(c.z + Math.abs(c.x) / tanH, c.z + Math.abs(c.y) / tanV)));
     // Outline on screen (in units of the half view), then move its middle to the centre.
@@ -453,10 +456,45 @@ function fitView(pts, center, dir) {
   // Parallel view: no perspective, so centre on the outline's extent directly.
   const xs = cam.map((c) => c.x), ys = cam.map((c) => c.y);
   const [xMin, xMax, yMin, yMax] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  if (!recenter) {
+    const fitHeight = (2 * Math.max(Math.abs(yMin), Math.abs(yMax), Math.max(Math.abs(xMin), Math.abs(xMax)) / persp.aspect)) / FILL;
+    return { target, dist, fitHeight, parallelTarget: target.clone() };
+  }
   const parallelTarget = target.clone().addScaledVector(right, (xMin + xMax) / 2).addScaledVector(up, (yMin + yMax) / 2);
   const fitHeight = Math.max(yMax - yMin, (xMax - xMin) / persp.aspect) / FILL;
   return { target, dist, fitHeight, parallelTarget };
 }
+
+/**
+ * Focus: orbit around the selection and frame it, keeping the current angle. With nothing
+ * selected, frame the whole scene (from the current angle; Home also resets the angle).
+ */
+function focusView() {
+  person.exitEye();
+  const m = model.mesh;
+  const ids = new Set();
+  for (const f of model.selectedFaces) m.faces.get(f)?.loops.flat().forEach((v) => ids.add(v));
+  for (const e of model.selectedEdges) { const edge = m.edges.get(e); if (edge) { ids.add(edge.a); ids.add(edge.b); } }
+  const pts = ids.size ? [...ids].map((v) => m.vertices.get(v).clone()) : [...m.vertices.values()].map((v) => v.clone());
+  if (!ids.size) {
+    const p = person.getState();
+    if (p.placed) pts.push(new THREE.Vector3(p.x, 0, p.z), new THREE.Vector3(p.x, p.height, p.z));
+  }
+  if (!pts.length) { homeView(); return; }
+  const box = new THREE.Box3().setFromPoints(pts);
+  // Frame small things as at least 1 m across.
+  const size = box.getSize(new THREE.Vector3());
+  if (Math.max(size.x, size.y, size.z) < 1) {
+    box.expandByVector(new THREE.Vector3(1, 1, 1).sub(size).max(new THREE.Vector3()).multiplyScalar(0.5));
+    for (let i = 0; i < 8; i++) pts.push(new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z));
+  }
+  const center = box.getCenter(new THREE.Vector3());
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  const { dist, fitHeight } = fitView(pts, center, dir, { recenter: false });
+  const zoom = camera === ortho ? orthoViewHeight / fitHeight : undefined;
+  flyTo(center.clone().addScaledVector(dir, dist), center.clone(), zoom, { duration: 0.7, easeInOut: true });
+}
+$('focus').addEventListener('click', focusView);
 
 /**
  * Home: default 3D angle, framing everything in the scene (shapes, lines + person).
@@ -641,6 +679,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'e') { if (!person.eye) setParallel(false); person.toggleEye(); }
   else if (k === 't') setStdView('top');
   else if (k === 'h') homeView();
+  else if (k === 'f') focusView();
   else if (k === 'o') setParallel(camera !== ortho);
   else if (k === 'enter') tools.finish();
   else if (k === 'escape') {
