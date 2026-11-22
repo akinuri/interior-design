@@ -240,8 +240,14 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   function updateCursor(e) {
     cursor = null;
     if (tool === 'person') {
-      const raw = rayToPlane(e, GROUND);
-      if (raw) cursor = Object.assign(raw, { kind: 'free' });
+      // On the floor-like surface under the cursor (a platform, a raised floor), else the ground.
+      setRay(e);
+      const hit = model.pickFace(raycaster);
+      if (hit && Math.abs(hit.normal.y) > 0.7) cursor = Object.assign(hit.point.clone(), { kind: 'free' });
+      else {
+        const raw = rayToPlane(e, GROUND);
+        if (raw) cursor = Object.assign(raw, { kind: 'free' });
+      }
     } else if (isDrawTool()) {
       // (Measure: the plane under the cursor each time, so points can be on different faces.)
       hoverPlane = (tool === 'measure' ? null : plane) ?? planeUnder(e);
@@ -862,7 +868,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     if (tool === 'select' && e.pointerType !== 'touch' && !person.eye) boxStart = { x: e.clientX, y: e.clientY };
     if (tool === 'person' && cursor) {
       model.checkpoint({ extra: true }); // placing / moving the person is an undo step
-      person.place(cursor.x, cursor.z);
+      person.place(cursor.x, cursor.z, cursor.y);
       aiming = { x: cursor.x, z: cursor.z };
       model.sync(false); // refresh undo button state
     } else if ((tool === 'rect' || tool === 'circle' || tool === 'measure') && !anchor && cursor) {

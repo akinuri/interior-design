@@ -647,7 +647,7 @@ function focusView() {
   const pts = some ? [...[...ids].map((v) => m.vertices.get(v).clone()), ...groupPts] : model.allPoints();
   if (!some) {
     const p = person.getState();
-    if (p.placed) pts.push(new THREE.Vector3(p.x, 0, p.z), new THREE.Vector3(p.x, p.height, p.z));
+    if (p.placed) pts.push(new THREE.Vector3(p.x, p.y, p.z), new THREE.Vector3(p.x, p.y + p.height, p.z));
   }
   if (!pts.length) { homeView(); return; }
   const box = new THREE.Box3().setFromPoints(pts);
@@ -677,7 +677,7 @@ function homeView() {
   // Everything to frame: the geometry's points and the person.
   const pts = model.allPoints();
   const p = person.getState();
-  if (p.placed) pts.push(new THREE.Vector3(p.x, 0, p.z), new THREE.Vector3(p.x, p.height, p.z));
+  if (p.placed) pts.push(new THREE.Vector3(p.x, p.y, p.z), new THREE.Vector3(p.x, p.y + p.height, p.z));
   const box = new THREE.Box3().setFromPoints(pts);
 
   const dir = new THREE.Vector3().fromArray(DEFAULT_CAMERA.position).normalize();

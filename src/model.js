@@ -915,13 +915,44 @@ export class Model {
     return null;
   }
 
-  /** Does a person of `radius` at (x, z) bump into a wall-like face between knee and eye height? */
-  blocks(x, z, radius, eyeHeight) {
-    return this.meshes.some((m) => this.meshBlocks(m, x, z, radius, eyeHeight));
+  /**
+   * The floor height at (x, z): the highest floor-like face (not steeper than ~45°) there that
+   * isn't above `maxY` (so a ceiling or a table top overhead doesn't count); the ground is 0.
+   */
+  floorAt(x, z, maxY = Infinity) {
+    let best = 0;
+    const inside = (poly) => {
+      let r = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const a = poly[i], b = poly[j];
+        if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) r = !r;
+      }
+      return r;
+    };
+    for (const m of this.meshes) {
+      for (const [id, f] of m.faces) {
+        const n = m.faceNormal(id);
+        if (Math.abs(n.y) < 0.7) continue;
+        const loops = f.loops.map((l) => l.map((v) => m.vertices.get(v)));
+        if (!inside(loops[0]) || loops.slice(1).some(inside)) continue;
+        const p0 = loops[0][0];
+        const y = p0.y - (n.x * (x - p0.x) + n.z * (z - p0.z)) / n.y;
+        if (y <= maxY + 1e-6 && y > best) best = y;
+      }
+    }
+    return best;
   }
 
-  meshBlocks(m, x, z, radius, eyeHeight) {
-    const heights = [0.3, eyeHeight * 0.6, eyeHeight];
+  /**
+   * Does a person of `radius` at (x, z), feet at `footY`, bump into a wall-like face between
+   * knee and eye height? (Below the knee: a step they can climb.)
+   */
+  blocks(x, z, radius, eyeHeight, footY = 0) {
+    return this.meshes.some((m) => this.meshBlocks(m, x, z, radius, eyeHeight, footY));
+  }
+
+  meshBlocks(m, x, z, radius, eyeHeight, footY = 0) {
+    const heights = [0.4, eyeHeight * 0.6, eyeHeight].map((h) => footY + h);
     for (const [id, f] of m.faces) {
       const n = m.faceNormal(id);
       if (Math.abs(n.y) > 0.95) continue; // floors / ceilings don't block

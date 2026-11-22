@@ -15,7 +15,9 @@ const LOOK_SPEED = 0.004;
  * around and walk with WASD / arrow keys.
  */
 export function createPerson({ scene, camera, controls, canvas, model }) {
-  const DEFAULTS = { placed: false, x: 0, z: 0, yaw: 0, height: 1.75, speed: 1.4 }; // speed in m/s
+  // y: the floor they stand on (the ground is 0). speed in m/s.
+  const DEFAULTS = { placed: false, x: 0, y: 0, z: 0, yaw: 0, height: 1.75, speed: 1.4 };
+  const STEP = 0.35; // highest step they walk up (m)
   const state = { ...DEFAULTS };
   try { Object.assign(state, JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')); } catch { /* ignore */ }
 
@@ -26,6 +28,7 @@ export function createPerson({ scene, camera, controls, canvas, model }) {
   const JUMP_RATIO = 0.25; // jump peak = 1/4 of eye height
   let jumpY = 0;
   let jumpV = 0;
+  let fallV = 0; // falling speed after walking off an edge
   let saved = null; // orbit camera to restore when leaving eye view
   let look = null; // active drag-to-look
   const keys = new Set();
@@ -70,7 +73,7 @@ export function createPerson({ scene, camera, controls, canvas, model }) {
 
   function syncFigure() {
     root.visible = state.placed && !eye;
-    root.position.set(state.x, 0, state.z);
+    root.position.set(state.x, state.y, state.z);
     root.rotation.y = -state.yaw;
     body.scale.setScalar(state.height / MODEL_HEIGHT);
   }
@@ -83,7 +86,7 @@ export function createPerson({ scene, camera, controls, canvas, model }) {
 
   // --- walking with simple collision against shapes ---
   function blocked(x, z) {
-    return model.blocks(x, z, RADIUS, state.height * EYE_RATIO);
+    return model.blocks(x, z, RADIUS, state.height * EYE_RATIO, state.y);
   }
   function tryMove(dx, dz) {
     // Move each axis separately so you slide along surfaces instead of sticking.
@@ -93,7 +96,7 @@ export function createPerson({ scene, camera, controls, canvas, model }) {
   }
 
   function placeCameraAtEyes() {
-    const h = state.height * EYE_RATIO + jumpY;
+    const h = state.y + state.height * EYE_RATIO + jumpY;
     camera.position.set(state.x, h, state.z);
     camera.lookAt(
       state.x + Math.cos(state.yaw) * Math.cos(pitch),
@@ -109,7 +112,8 @@ export function createPerson({ scene, camera, controls, canvas, model }) {
       // Drop the person at the orbit target, facing the way the camera looks.
       const dir = new THREE.Vector3();
       camera.getWorldDirection(dir);
-      Object.assign(state, { placed: true, x: controls.target.x, z: controls.target.z, yaw: Math.atan2(dir.z, dir.x) });
+      const { x, z } = controls.target;
+      Object.assign(state, { placed: true, x, z, y: model.floorAt(x, z, controls.target.y + STEP), yaw: Math.atan2(dir.z, dir.x) });
     }
     saved = { position: camera.position.clone(), target: controls.target.clone() };
     eye = true;
@@ -128,7 +132,7 @@ export function createPerson({ scene, camera, controls, canvas, model }) {
     look = null;
     // Return to orbit, centred on where the person now stands.
     const offset = saved.position.clone().sub(saved.target);
-    controls.target.set(state.x, 0, state.z);
+    controls.target.set(state.x, state.y, state.z);
     camera.position.copy(controls.target).add(offset);
     controls.enabled = true;
     controls.update();
@@ -211,8 +215,9 @@ export function createPerson({ scene, camera, controls, canvas, model }) {
     leftDragLooks: () => true,
     isMoveKey: (k) => eye && (MOVE_KEYS.includes(k) || k === ' '),
     onChange(fn) { listeners.add(fn); },
-    place(x, z) {
-      Object.assign(state, { placed: true, x, z });
+    /** Place them at (x, z), standing at height y (the floor there). */
+    place(x, z, y = 0) {
+      Object.assign(state, { placed: true, x, z, y });
       syncFigure();
       emit();
     },
@@ -220,7 +225,7 @@ export function createPerson({ scene, camera, controls, canvas, model }) {
       state.yaw = yaw;
       syncFigure();
     },
-    position() { return { x: state.x, z: state.z }; },
+    position() { return { x: state.x, y: state.y, z: state.z }; },
     setHeight(h) {
       state.height = h;
       syncFigure();
@@ -254,6 +259,15 @@ export function createPerson({ scene, camera, controls, canvas, model }) {
         const speed = state.speed * (running ? 2 : 1) * dt / Math.hypot(f, s);
         const c = Math.cos(state.yaw), sn = Math.sin(state.yaw);
         tryMove((c * f - sn * s) * speed, (sn * f + c * s) * speed);
+      }
+      // The floor underfoot: step up onto it (up to STEP), or fall when it's lower.
+      const floor = model.floorAt(state.x, state.z, state.y + STEP);
+      if (floor >= state.y) state.y = floor;
+      else if (jumpY === 0 && jumpV === 0) {
+        // Walked off an edge: fall (with the same gravity as jumping) until landing.
+        fallV += GRAVITY * dt;
+        state.y = Math.max(floor, state.y - fallV * dt);
+        if (state.y === floor) fallV = 0;
       }
       if (jumpY > 0 || jumpV > 0) {
         jumpV -= GRAVITY * dt;
