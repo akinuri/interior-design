@@ -648,8 +648,21 @@ function focusView() {
   for (const f of model.selectedFaces) m.faces.get(f)?.loops.flat().forEach((v) => ids.add(v));
   for (const e of model.selectedEdges) { const edge = m.edges.get(e); if (edge) { ids.add(edge.a); ids.add(edge.b); } }
   const groupPts = model.selectedGroups.flatMap((g) => [...model.groups.get(g).mesh.vertices.values()].map((v) => v.clone()));
-  const some = ids.size || groupPts.length;
-  const pts = some ? [...[...ids].map((v) => m.vertices.get(v).clone()), ...groupPts] : model.allPoints();
+  // Measurements: their two ends. Guides: the labelled part (from the measured point to the
+  // line), or just a point of the line (it's endless).
+  const notePts = [];
+  for (const id of model.selectedMeasurements) {
+    const ms = model.measurements.find((x) => x.id === id);
+    if (ms) notePts.push(ms.a.clone(), ms.b.clone());
+  }
+  for (const id of model.selectedGuides) {
+    const g = model.guides.find((x) => x.id === id);
+    if (!g) continue;
+    const ref = g.from ?? g.p;
+    notePts.push(ref.clone(), g.p.clone().addScaledVector(g.d, ref.clone().sub(g.p).dot(g.d) / g.d.lengthSq()));
+  }
+  const some = ids.size || groupPts.length || notePts.length;
+  const pts = some ? [...[...ids].map((v) => m.vertices.get(v).clone()), ...groupPts, ...notePts] : model.allPoints();
   if (!some) {
     const p = person.getState();
     if (p.placed) pts.push(new THREE.Vector3(p.x, p.y, p.z), new THREE.Vector3(p.x, p.y + p.height, p.z));
