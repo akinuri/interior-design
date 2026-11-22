@@ -291,6 +291,11 @@ function cleanMaterial(m) {
     ...(typeof m.image === 'string' && !m.image.startsWith('data:') ? { image: m.image } : {}),
     size: [Math.max(0.01, num(size[0], 1)), Math.max(0.01, num(size[1], 1))],
     rotation: num(m.rotation, 0) % 360,
+    // Shifts the pattern along its own (rotated) width / height, m; kept within one repeat.
+    offset: [0, 1].map((i) => {
+      const w = Math.max(0.01, num(size[i], 1)), o = num(Array.isArray(m.offset) ? m.offset[i] : 0, 0) % w;
+      return Math.abs(o) < 1e-9 ? 0 : o;
+    }),
   };
 }
 
@@ -307,7 +312,7 @@ export class Model {
     this.measurements = []; // { id, a, b } (Measure tool), points in metres
     this.nextMeasureId = 1;
     this.measureView = createMeasureView(scene);
-    this.materials = []; // { id, name, color, builtin? | image?, size: [w, h] m, rotation } (see materials.js)
+    this.materials = []; // { id, name, color, builtin? | image?, size: [w, h] m, rotation, offset: [x, y] m } (see materials.js)
     this.images = new Map(); // image id → data URL (kept out of the undo history)
     this.nextMaterialId = 1;
     this.nextImageId = 1;
@@ -1087,7 +1092,7 @@ export class Model {
         const a = THREE.MathUtils.degToRad(mat.rotation), cos = Math.cos(a), sin = Math.sin(a);
         uvOf = (p) => {
           const s = p.dot(plane.u), t = p.dot(plane.v);
-          return [(s * cos - t * sin) / mat.size[0], (s * sin + t * cos) / mat.size[1]];
+          return [(s * cos - t * sin - mat.offset[0]) / mat.size[0], (s * sin + t * cos - mat.offset[1]) / mat.size[1]];
         };
       }
       // Selected faces are tinted in the shader (an overlay would fight the faces in depth).

@@ -367,7 +367,7 @@ function refreshMaterials() {
   if (m) {
     // Sizes per tile / plank / brick (a repeat may hold several).
     const u = unitsOf(m);
-    for (const [id, v] of [['mat-name', m.name], ['mat-color', m.color], ['mat-w', cm(m.size[0] / u[0])], ['mat-h', cm(m.size[1] / u[1])], ['mat-rot', m.rotation]]) {
+    for (const [id, v] of [['mat-name', m.name], ['mat-color', m.color], ['mat-w', cm(m.size[0] / u[0])], ['mat-h', cm(m.size[1] / u[1])], ['mat-rot', m.rotation], ['mat-ox', cm(m.offset[0])], ['mat-oy', cm(m.offset[1])]]) {
       if (document.activeElement !== $(id)) $(id).value = String(v);
     }
   }
@@ -418,6 +418,11 @@ for (const id of ['mat-w', 'mat-h']) {
 }
 $('mat-rot').addEventListener('input', (e) => model.updateMaterial(editingMaterial, { rotation: parseFloat(e.target.value) || 0 }, { live: true }));
 $('mat-rot').addEventListener('change', (e) => model.updateMaterial(editingMaterial, { rotation: parseFloat(e.target.value) || 0 }));
+const matOffset = () => [(parseFloat($('mat-ox').value) || 0) / 100, (parseFloat($('mat-oy').value) || 0) / 100];
+for (const id of ['mat-ox', 'mat-oy']) {
+  $(id).addEventListener('input', () => model.updateMaterial(editingMaterial, { offset: matOffset() }, { live: true }));
+  $(id).addEventListener('change', () => { model.updateMaterial(editingMaterial, { offset: matOffset() }); refreshMaterials(); });
+}
 $('mat-apply').addEventListener('click', () => {
   if (editingMaterial === 'default') model.applyDefaultMaterial(settings.color);
   else model.setSelectionMaterial(editingMaterial);
