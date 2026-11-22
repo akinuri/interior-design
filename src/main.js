@@ -106,7 +106,7 @@ environment.onApply((v) => faceStyleButtons.forEach((b) => b.classList.toggle('a
 
 // --- model & tools ---
 // Drawing settings (Drawing card), remembered and saved in designs when changed.
-const NEW_SHAPE_DEFAULTS = { color: DEFAULT_COLOR, circleSides: 48 };
+const NEW_SHAPE_DEFAULTS = { color: DEFAULT_COLOR, circleSides: 48, snapping: true };
 const DRAWING_KEY = 'interior-design.drawing.v1';
 const settings = { ...NEW_SHAPE_DEFAULTS, snap: 0.25 };
 try { Object.assign(settings, pickValid(NEW_SHAPE_DEFAULTS, JSON.parse(localStorage.getItem(DRAWING_KEY) ?? '{}'))); } catch { /* ignore */ }
@@ -830,6 +830,16 @@ function setScene(data) {
   return count;
 }
 
+// --- snapping on / off (corners, edges, axes, grid) ---
+function setSnapping(on) {
+  settings.snapping = on;
+  saveDrawing();
+  $('snapping').classList.toggle('active', on);
+  tools.refresh?.();
+}
+setSnapping(settings.snapping);
+$('snapping').addEventListener('click', () => setSnapping(!settings.snapping));
+
 // --- keyboard ---
 window.addEventListener('keydown', (e) => {
   if (isTyping(e)) return;
@@ -860,6 +870,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'h') homeView();
   else if (k === 'f') focusView();
   else if (k === 'o') setParallel(camera !== ortho);
+  else if (k === 's') setSnapping(!settings.snapping);
   else if (k === 'enter') tools.finish();
   else if (k === 'escape') {
     if (tools.cancel()) return;
