@@ -456,9 +456,21 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       else {
         // The point to move from: one of the grips (corners / midpoints of what would move)
         // near the mouse; else snapped like drawing, on the surface under the cursor.
-        grips = gripsOf(e);
+        // (Off the object but still near one of its grips, e.g. reaching for an outer corner:
+        // keep them.)
+        const next = gripsOf(e);
+        const keep = !next.corners.length && grips && nearestOnScreen(e, [...grips.corners, ...grips.mids].map((q) => [q]), 24);
+        if (!keep) grips = next;
         const g = nearestOnScreen(e, [...grips.corners.map((q) => [q, 'vertex']), ...grips.mids.map((q) => [q, 'mid'])], 18);
         hoverPlane = planeUnder(e);
+        // Looking nearly level (front / side views) at empty space: the ground is seen edge-on,
+        // so grab on the upright plane facing the camera (through the selection's middle).
+        const view = getCamera().getWorldDirection(new THREE.Vector3());
+        if (hoverPlane === GROUND && Math.abs(view.y) <= 0.26) {
+          const box = new THREE.Box3();
+          for (const t of model.selection.size ? moveTargets() : []) box.expandByPoint(t.p);
+          hoverPlane = makePlane(Math.abs(view.x) > Math.abs(view.z) ? AXES.x : AXES.z, box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3()));
+        }
         if (g) cursor = Object.assign(g[0].clone(), { kind: g[1] });
         else {
           const raw = rayToPlane(e, hoverPlane);
@@ -530,8 +542,10 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       }
     }
     if (tool === 'move' && !mv && grips) {
-      gripCorners.geometry.setFromPoints(grips.corners);
-      gripMids.geometry.setFromPoints(grips.mids);
+      for (const [o, pts] of [[gripCorners, grips.corners], [gripMids, grips.mids]]) {
+        o.geometry.dispose();
+        o.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+      }
       gripCorners.visible = grips.corners.length > 0;
       gripMids.visible = grips.mids.length > 0;
     }
@@ -1107,7 +1121,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       const hit = ray.intersectObjects(model.pickables, false)[0];
       return !hit || hit.distance >= ray.ray.origin.distanceTo(q) - 0.01;
     };
-    return { corners: [...corners].filter((q) => q && seen(q)), mids: mids.filter(seen) };
+    return { keys, corners: [...corners].filter((q) => q && seen(q)), mids: mids.filter(seen) };
   }
 
   function selectUnder(e) {
@@ -1123,7 +1137,12 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   }
 
   function startMove(e) {
-    if (!model.selection.size) selectUnder(e);
+    // Nothing selected: what the grips shown belong to (also when grabbing an outer corner,
+    // just off the object), else what's under the mouse.
+    if (!model.selection.size) {
+      if (grips?.keys?.length && cursor && (cursor.kind === 'vertex' || cursor.kind === 'mid')) model.select(grips.keys);
+      else selectUnder(e);
+    }
     if (!model.selection.size || !cursor) return false;
     const targets = moveTargets();
     if (!targets.length) return false;
@@ -1159,31 +1178,50 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       }
       mv.axis = null;
     } else {
-      const floor = makePlane(UP, mv.base);
-      const raw = rayToPlane(e, floor);
-      // A corner / measurement end anywhere (any height) under the mouse, else the floor.
+      // Along the floor; but looking nearly level (a front / side view), where the floor
+      // can't be aimed at, along the upright axis plane facing the camera.
+      const view = getCamera().getWorldDirection(new THREE.Vector3());
+      const normalAxis = Math.abs(view.y) > 0.26 ? 'y' : Math.abs(view.x) > Math.abs(view.z) ? 'x' : 'z';
+      const movePlane = makePlane(AXES[normalAxis], mv.base);
+      const raw = rayToPlane(e, movePlane);
+      // A corner / measurement end anywhere under the mouse (to where it lines up), else the plane.
       const pt = screenSnap(e, mv.exclude);
-      if (pt) target = Object.assign(new THREE.Vector3(pt.x, mv.base.y, pt.z), { kind: pt.kind, snapped: pt });
-      else if (raw) target = snap(raw, floor, null, mv.exclude);
-      // Locked to X / Z (→ / ←; or Shift held: whichever it was closer to when pressed):
-      // straight along it, to where the point lines up.
+      if (pt) target = Object.assign(movePlane.project(pt), { kind: pt.kind, snapped: pt });
+      else if (raw) target = snap(raw, movePlane, null, mv.exclude);
+      // Locked to an axis (→ / ←: X / Z; or Shift held: the one in the plane it was closest
+      // to when pressed): straight along it, to where the mouse / the snapped point lines up.
       if (!shift) mv.shiftAxis = null;
       let axis = moveAxis;
       if (!axis && shift && target) {
         const d = target.clone().sub(mv.base);
-        mv.shiftAxis ??= Math.abs(d.x) >= Math.abs(d.z) ? 'x' : 'z';
+        mv.shiftAxis ??= ['x', 'y', 'z'].filter((k) => k !== normalAxis).reduce((b, k) => (Math.abs(d[k]) > Math.abs(d[b]) ? k : b));
         axis = mv.shiftAxis;
       }
       mv.axis = axis;
-      if (target && axis) {
-        const locked = Object.assign(mv.base.clone(), { kind: 'axis', axis, snapped: target.snapped });
-        locked[axis] = target[axis];
+      if (axis) {
+        const locked = Object.assign(mv.base.clone(), { kind: 'axis', axis, snapped: target?.snapped });
+        const t = pt ? pt[axis] - mv.base[axis] : alongLine(e, mv.base, AXES[axis]);
+        if (t == null) return;
+        locked[axis] += pt || !(settings.snapping && settings.snap) ? t : Math.round(t / settings.snap) * settings.snap;
         target = locked;
       }
     }
-    if (!target) return;
+    // (Nothing absurd: no NaN, nowhere kilometres off.)
+    if (!target || !['x', 'y', 'z'].every((k) => Number.isFinite(target[k]) && Math.abs(target[k] - mv.base[k]) < 1000)) return;
     cursor = target;
     applyMove(target.clone().sub(mv.base));
+  }
+
+  /** How far along the line (origin, unit dir) the mouse points: on the plane through the line facing the camera. */
+  function alongLine(e, origin, dir) {
+    setRay(e);
+    const n = new THREE.Vector3().crossVectors(dir, raycaster.ray.direction).cross(dir);
+    if (n.lengthSq() < 1e-10) return null; // looking straight along it
+    const q = raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(n.normalize(), origin), new THREE.Vector3());
+    if (!q) return null;
+    const t = q.sub(origin).dot(dir);
+    // Aiming almost along the line throws the point kilometres away: ignore that.
+    return Number.isFinite(t) && Math.abs(t) < 1000 ? t : null;
   }
 
   function endMove(keep) {
