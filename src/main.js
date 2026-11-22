@@ -362,7 +362,7 @@ function refreshMaterials() {
   if (!m && !isDefault) editingMaterial = null;
   $('mat-edit').hidden = !m && !isDefault;
   $('mat-row-default').hidden = !isDefault;
-  for (const id of ['mat-row-name', 'mat-row-tint', 'mat-row-w', 'mat-row-h', 'mat-row-rot', 'mat-delete']) $(id).hidden = isDefault;
+  for (const id of ['mat-row-name', 'mat-row-tint', 'mat-row-w', 'mat-row-h', 'mat-row-rot', 'mat-row-ox', 'mat-row-oy', 'mat-delete']) $(id).hidden = isDefault;
   $('mat-apply').disabled = model.selectionMaterial() === undefined;
   if (m) {
     // Sizes per tile / plank / brick (a repeat may hold several).

@@ -23,7 +23,9 @@ export const MAX_SIDES = 360;
  *  - circle:   centre, then radius (click-click or drag).
  *  - pushpull: grab a face and move it along its normal (drag, or click-move-click).
  *  - move:     move the selection (or what's clicked): click a point, then where it goes
- *              (or drag). Along the floor; ↑ toggles up / down; Shift locks to X or Z.
+ *              (or drag). Along the floor; ↑ toggles up / down; Shift (held) locks to X or Z,
+ *              whichever it's closer to; → / ← lock to X / Z. Snaps to corners and measurement
+ *              ends at any height; when locked, to where they line up with the axis.
  *  - person:   place the person; drag while placing to set the facing direction.
  *
  * Drawing happens on the face under the cursor (any direction: floors, walls, tops),
@@ -36,7 +38,8 @@ export const MAX_SIDES = 360;
 
 const CLICK_TOLERANCE_PX = 5;
 const BLUE = 0x2a6df4;
-const SNAP_COLORS = { vertex: 0xf28c28, mid: 0x18a6b8, edge: 0xd6336c, guide: 0xd6336c };
+const ALIGN_COLOR = 0xc026d3; // along / across an edge (inference)
+const SNAP_COLORS = { cross: 0xe03131, vertex: 0xf28c28, mid: 0x18a6b8, edge: 0xd6336c, guide: 0xd6336c, face: 0x3a6fe8 };
 const UP = new THREE.Vector3(0, 1, 0);
 const AXES = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
 // Axis colours, like the ground / side grid axes: X red, Y green, Z blue.
@@ -58,6 +61,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   let op = null; // push/pull in progress
   let mv = null; // move in progress: { base, targets: [{ p, orig }], exclude, delta, byPress }
   let moveVertical = false; // Move tool: ↑ toggles moving up / down instead of along the floor
+  let moveAxis = null; // Move tool: 'x' / 'z' locked with → / ← (until toggled off or the move ends)
   let hover = null; // push/pull: face id under the cursor
   let cursor = null; // snapped point: THREE.Vector3 with .kind
   let typed = ''; // typed value (measurements box)
@@ -66,6 +70,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   let aiming = null; // person tool: placed point; drag sets facing
   let boxStart = null; // Select tool: where a selection box drag started { x, y } (client px)
   let shift = false;
+  let measureLock = null; // Measure tool, Shift held: { dir, kind, axis } the line is locked to
   let lastPointer = null;
   const toolListeners = new Set();
   const stateListeners = new Set(); // busy / can-finish changes (touch action bar)
@@ -97,7 +102,69 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   const guideMat = new THREE.LineDashedMaterial({ color: BLUE, dashSize: 0.1, gapSize: 0.08, depthTest: false, transparent: true, opacity: 0.8 });
   const guidePreview = new THREE.Line(new THREE.BufferGeometry(), guideMat);
   guidePreview.renderOrder = 10;
-  const helpers = [preview, fill, hiFill, hiLine, marker, guidePreview];
+  // Snap points drawn as points, a fixed size on screen: square = corner, diamond = midpoint,
+  // round = on an edge / face. `grips`: the corners and midpoints the Move tool can grab.
+  const shapeTexture = (shape) => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    g.beginPath();
+    if (shape === 'ex') { // an X: where lines cross
+      g.lineCap = 'round';
+      for (const [w, col] of [[16, '#1b1b1b'], [8, '#fff']]) {
+        g.lineWidth = w;
+        g.strokeStyle = col;
+        g.beginPath(); g.moveTo(14, 14); g.lineTo(50, 50); g.moveTo(50, 14); g.lineTo(14, 50); g.stroke();
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+    if (shape === 'square') g.rect(14, 14, 36, 36);
+    else if (shape === 'diamond') { g.moveTo(32, 8); g.lineTo(56, 32); g.lineTo(32, 56); g.lineTo(8, 32); g.closePath(); }
+    else if (shape === 'cross') {
+      // A thin plus with a dark outline: a point that isn't a corner etc. (free, grid, along a line).
+      g.lineCap = 'round';
+      for (const [w, col] of [[10, '#1b1b1b'], [4, '#fff']]) {
+        g.lineWidth = w;
+        g.strokeStyle = col;
+        g.beginPath(); g.moveTo(32, 6); g.lineTo(32, 58); g.moveTo(6, 32); g.lineTo(58, 32); g.stroke();
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    } else g.arc(32, 32, 20, 0, Math.PI * 2);
+    g.fillStyle = '#fff';
+    g.fill();
+    g.lineWidth = 7;
+    g.strokeStyle = '#1b1b1b';
+    g.stroke();
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  };
+  const SHAPES = { square: shapeTexture('square'), diamond: shapeTexture('diamond'), round: shapeTexture('round'), cross: shapeTexture('cross'), ex: shapeTexture('ex') };
+  const shapeOf = (kind) => (kind === 'vertex' ? 'square' : kind === 'mid' ? 'diamond' : kind === 'cross' ? 'ex' : 'round');
+  const pointsObj = (size, opacity = 1) => {
+    const o = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({
+      size, sizeAttenuation: false, map: SHAPES.square, transparent: true, opacity, depthTest: false, alphaTest: 0.1,
+    }));
+    o.renderOrder = 12;
+    o.frustumCulled = false;
+    return o;
+  };
+  const gripCorners = pointsObj(10, 0.95); // the grab points (Move tool), in the snap colours
+  gripCorners.material.color.set(0xf28c28);
+  const gripMids = pointsObj(10, 0.95);
+  gripMids.material.map = SHAPES.diamond;
+  gripMids.material.color.set(0x18a6b8);
+  const snapDot = pointsObj(15); // the point snapped to (the cursor)
+  snapDot.renderOrder = 13;
+  const crossDot = pointsObj(20, 0.7); // the cursor elsewhere: a see-through cross
+  crossDot.material.map = SHAPES.cross;
+  crossDot.renderOrder = 13;
+  let grips = null; // { corners: Vector3[], mids: Vector3[] }: Move tool, before grabbing
+  const helpers = [preview, fill, hiFill, hiLine, marker, guidePreview, gripCorners, gripMids, snapDot, crossDot];
 
   // Selection box (Select tool): solid = fully inside (dragged left to right), dashed = touching.
   const boxEl = document.createElement('div');
@@ -143,7 +210,106 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
    * cross edges / other guides), midpoints, on an edge or guide, along an axis from `from`
    * (line / measure), the grid. The result is a Vector3 with `kind` (and `edge` / `axis`).
    */
+  /**
+   * Where lines cross (in 3D): guides with guides and with edges, and edges of different
+   * objects / groups (edges of one object are split where they cross already).
+   * `skip(A, B)`: leave out edges (e.g. ones that are moving). Cached while nothing changes.
+   */
+  let crossCache = null;
+  model.onChange(() => { crossCache = null; });
+  function crossings(skip = null) {
+    if (!skip && crossCache) return crossCache;
+    const lines = [];
+    for (const g of model.guides) lines.push({ A: g.p, d: g.d.clone().normalize(), len: Infinity, owner: null });
+    for (const m of model.meshes) {
+      for (const ed of m.edges.values()) {
+        if (ed.soft) continue;
+        const A = m.vertices.get(ed.a), B = m.vertices.get(ed.b);
+        if (skip?.(A, B)) continue;
+        const d = B.clone().sub(A), len = d.length();
+        if (len > 1e-6) lines.push({ A, d: d.divideScalar(len), len, owner: m });
+      }
+    }
+    const out = [];
+    const w = new THREE.Vector3();
+    for (let i = 0; i < lines.length; i++) {
+      const a = lines[i];
+      for (let j = i + 1; j < lines.length; j++) {
+        const b = lines[j];
+        if (a.owner && a.owner === b.owner) continue;
+        const k = a.d.dot(b.d), den = 1 - k * k;
+        if (den < 1e-9) continue; // parallel
+        w.copy(a.A).sub(b.A);
+        const dd = a.d.dot(w), ee = b.d.dot(w);
+        const s = (k * ee - dd) / den, t = (ee - k * dd) / den;
+        if (s < -1e-6 || s > a.len + 1e-6 || t < -1e-6 || t > b.len + 1e-6) continue;
+        const P = a.A.clone().addScaledVector(a.d, s);
+        if (P.distanceToSquared(b.A.clone().addScaledVector(b.d, t)) > 1e-8) continue;
+        // An edge's own end (a corner): that's a corner already.
+        if ((a.owner && (s < 1e-6 || s > a.len - 1e-6)) || (b.owner && (t < 1e-6 || t > b.len - 1e-6))) continue;
+        out.push(P);
+      }
+    }
+    if (!skip) crossCache = out;
+    return out;
+  }
+
+  /** Ends of measurements and of labelled guides' reference lines: points to snap to. */
+  function notePoints() {
+    const out = [];
+    for (const ms of model.measurements) out.push(ms.a, ms.b);
+    for (const g of model.guides) {
+      if (!g.from) continue;
+      const foot = g.p.clone().addScaledVector(g.d, g.from.clone().sub(g.p).dot(g.d) / g.d.lengthSq());
+      out.push(g.from, foot);
+    }
+    return out;
+  }
+
+  /**
+   * The corner (geometry point or measurement end, at any height) nearest to the mouse on
+   * screen, within a few px; null if none (or snapping is off).
+   */
+  function screenSnap(e, exclude = null, px = 14) {
+    if (!settings.snapping) return null;
+    const cam = getCamera();
+    const r = canvas.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    let best = null, bestD = px;
+    const pts = [...model.meshes.flatMap((m) => [...m.vertices.values()]), ...notePoints()];
+    const v = new THREE.Vector3();
+    const near = (q) => {
+      v.copy(q).project(cam);
+      if (v.z < -1 || v.z > 1) return Infinity;
+      return Math.hypot((v.x + 1) / 2 * r.width - mx, (1 - v.y) / 2 * r.height - my);
+    };
+    for (const q of pts) {
+      if (exclude?.has(q)) continue;
+      const d = near(q);
+      if (d < bestD) { bestD = d; best = Object.assign(q.clone(), { kind: 'vertex' }); }
+    }
+    for (const q of exclude ? mv?.crossPts ?? [] : crossings()) {
+      const d = near(q);
+      if (d < bestD) { bestD = d; best = Object.assign(q.clone(), { kind: 'cross' }); }
+    }
+    if (best) return best;
+    // Then midpoints of edges (straight ones, not moving).
+    bestD = px * 0.85;
+    for (const m of model.meshes) {
+      for (const ed of m.edges.values()) {
+        if (ed.soft || ed.curve) continue;
+        const A = m.vertices.get(ed.a), B = m.vertices.get(ed.b);
+        if (exclude?.has(A) || exclude?.has(B)) continue;
+        const mid = A.clone().add(B).multiplyScalar(0.5);
+        const d = near(mid);
+        if (d < bestD) { bestD = d; best = Object.assign(mid, { kind: 'mid' }); }
+      }
+    }
+    return best;
+  }
+
   function snap(raw, p, from, exclude = null) {
+    if (!settings.snapping) return Object.assign(p.project(raw), { kind: 'free' }); // snapping off
     const cam = getCamera();
     // Snap radius grows with distance so it feels the same at any zoom.
     const r = THREE.MathUtils.clamp(0.012 * cam.position.distanceTo(raw), 0.05, 0.6);
@@ -163,22 +329,19 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     const guides = model.guides.filter((g) => p.has(g.p, 1e-3) && Math.abs(g.d.dot(p.n)) < 1e-6)
       .map((g) => ({ A: g.p, B: g.p.clone().add(g.d), guide: true }));
 
-    // Corners: points of the geometry and of the shape being drawn, plus guide crossings.
-    const points = [...meshes.flatMap((m) => [...m.vertices.values()]), ...chain, ...(anchor ? [anchor] : [])]
+    // Corners: points of the geometry and of the shape being drawn; then where lines cross
+    // (guides, edges of other objects), on this plane.
+    const points = [...meshes.flatMap((m) => [...m.vertices.values()]), ...notePoints(), ...chain, ...(anchor ? [anchor] : [])]
       .filter((v) => p.has(v, 1e-3) && !exclude?.has(v));
-    for (let i = 0; i < guides.length; i++) {
-      const g = guides[i];
-      for (const o of [...guides.slice(i + 1), ...segs]) {
-        const x = crossing2D(p, g, o);
-        if (x) points.push(x);
+    const crosses = (exclude ? mv?.crossPts ?? [] : crossings()).filter((v) => p.has(v, 1e-3));
+    let best = null, bestD = r, bestKind = 'vertex';
+    for (const [list, kind] of [[points, 'vertex'], [crosses, 'cross']]) {
+      for (const v of list) {
+        const d = v.distanceTo(raw);
+        if (d < bestD - 1e-9) { bestD = d; best = v; bestKind = kind; }
       }
     }
-    let best = null, bestD = r;
-    for (const v of points) {
-      const d = v.distanceTo(raw);
-      if (d < bestD) { bestD = d; best = v; }
-    }
-    if (best) return at(best, 'vertex');
+    if (best) return at(best, bestKind);
     // Midpoints (of edges), then anywhere on an edge or a guide.
     bestD = r * 0.8;
     for (const { A, B } of segs) {
@@ -198,7 +361,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
 
     const step = settings.snap;
     // Along an axis from the start point (line / measure), when the direction is close to one.
-    if (from && (tool === 'line' || tool === 'measure') && !shift) {
+    if (from && (tool === 'measure' || (tool === 'line' && !shift))) { // (measure + Shift: this is what gets locked)
       const d = raw.clone().sub(from);
       const len = d.length();
       if (len > 1e-6) {
@@ -207,7 +370,23 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
           if (Math.abs(along) / len < Math.cos(THREE.MathUtils.degToRad(4))) continue;
           if (tool === 'line' && Math.abs(dir.dot(p.n)) > 1e-6) continue; // a line stays on its plane
           const l = step ? Math.round(along / step) * step : along;
-          return Object.assign(from.clone().addScaledVector(dir, round6(l)), { kind: 'axis', axis });
+          return Object.assign(from.clone().addScaledVector(dir, round6(l)), { kind: 'axis', axis, dir: dir.clone() });
+        }
+        // Along an edge on this surface, or square to one (∥ / ⊥).
+        const dirs = [];
+        for (const { A, B } of segs) {
+          const e = B.clone().sub(A).normalize();
+          for (const [kind, dir] of [['parallel', e], ['perp', new THREE.Vector3().crossVectors(p.n, e).normalize()]]) {
+            if (dir.lengthSq() < 0.5) continue;
+            if (Object.values(AXES).some((a) => Math.abs(a.dot(dir)) > 0.9999)) continue; // an axis: done above
+            if (!dirs.some((x) => Math.abs(x.dir.dot(dir)) > 0.9999)) dirs.push({ kind, dir });
+          }
+        }
+        for (const { kind, dir } of dirs) {
+          const along = d.dot(dir);
+          if (Math.abs(along) / len < Math.cos(THREE.MathUtils.degToRad(3))) continue;
+          const l = step ? Math.round(along / step) * step : along;
+          return Object.assign(from.clone().addScaledVector(dir, round6(l)), { kind, dir: dir.clone() });
         }
       }
     }
@@ -221,17 +400,6 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     }
     if (!step) return at(raw, 'free');
     return at(p.from2D(round6(Math.round(c.x / step) * step), round6(Math.round(c.y / step) * step)), 'grid');
-  }
-
-  /** Where guide line `g` crosses line / segment `o` on plane `p` (Vector3), or null. */
-  function crossing2D(p, g, o) {
-    const a = p.to2D(g.A), b = p.to2D(g.B), c = p.to2D(o.A), d = p.to2D(o.B);
-    const rx = b.x - a.x, ry = b.y - a.y, sx = d.x - c.x, sy = d.y - c.y;
-    const den = rx * sy - ry * sx;
-    if (Math.abs(den) < 1e-12) return null;
-    const u = ((c.x - a.x) * ry - (c.y - a.y) * rx) / den; // along o
-    if (!o.guide && (u < -1e-9 || u > 1 + 1e-9)) return null;
-    return o.A.clone().lerp(o.B, u);
   }
 
   const drawing = () => chain.length > 0 || !!anchor;
@@ -253,20 +421,49 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       hoverPlane = (tool === 'measure' ? null : plane) ?? planeUnder(e);
       const raw = rayToPlane(e, hoverPlane);
       if (raw) cursor = snap(raw, hoverPlane, tool === 'line' ? chain.at(-1) : tool === 'measure' ? anchor : null);
-      if (cursor && tool === 'measure' && anchor && shift) {
-        // Shift: straight along the main axis (X, Y or Z) it's closest to.
-        const d = cursor.clone().sub(anchor);
-        const axis = ['x', 'y', 'z'].reduce((best, k) => (Math.abs(d[k]) > Math.abs(d[best]) ? k : best), 'x');
-        cursor = Object.assign(anchor.clone(), { kind: 'angle' });
-        cursor[axis] += d[axis];
+      // The lock stays after Shift is let go (to type a distance, to look for a point): until
+      // the mouse is waved well away from the locked line, Shift is pressed again, or the
+      // measurement ends.
+      if (measureLock && !shift && !typed && anchor && lockWavedAway(e)) measureLock = null;
+      if (cursor && tool === 'measure' && anchor && (shift || measureLock)) {
+        // Shift: lock the direction it's on (an axis, along / across an edge); with none, the
+        // main axis (X, Y or Z) it's closest to. Then corners etc. project onto that line.
+        if (!measureLock) {
+          if (cursor.dir) measureLock = { dir: cursor.dir.clone(), kind: cursor.kind, axis: cursor.axis };
+          else {
+            const d = cursor.clone().sub(anchor);
+            const axis = ['x', 'y', 'z'].reduce((best, k) => (Math.abs(d[k]) > Math.abs(d[best]) ? k : best), 'x');
+            measureLock = { dir: AXES[axis].clone(), kind: 'axis', axis };
+          }
+        }
+        const { dir, kind, axis } = measureLock;
+        // On a snapped point (a corner...): where it lines up. Else: the point of the line
+        // nearest the mouse (on screen), not where the mouse meets the surface.
+        let t = cursor.clone().sub(anchor).dot(dir);
+        if (!marksPlace(cursor)) {
+          // (The plane through the line that faces the camera most: where the mouse meets it.)
+          setRay(e);
+          const view = raycaster.ray.direction;
+          const n = new THREE.Vector3().crossVectors(dir, view).cross(dir);
+          const q = n.lengthSq() > 1e-10 ? raycaster.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(n.normalize(), anchor), new THREE.Vector3()) : null;
+          if (q) t = q.sub(anchor).dot(dir);
+          if (settings.snapping && settings.snap) t = Math.round(t / settings.snap) * settings.snap;
+        }
+        cursor = Object.assign(anchor.clone().addScaledVector(dir, t), { kind, axis, dir: dir.clone(), locked: true });
       }
     } else if (tool === 'move') {
       if (mv) updateMove(e);
       else {
-        // The point to move from: snapped like drawing, on the surface under the cursor.
+        // The point to move from: one of the grips (corners / midpoints of what would move)
+        // near the mouse; else snapped like drawing, on the surface under the cursor.
+        grips = gripsOf(e);
+        const g = nearestOnScreen(e, [...grips.corners.map((q) => [q, 'vertex']), ...grips.mids.map((q) => [q, 'mid'])], 18);
         hoverPlane = planeUnder(e);
-        const raw = rayToPlane(e, hoverPlane);
-        if (raw) cursor = snap(raw, hoverPlane, null);
+        if (g) cursor = Object.assign(g[0].clone(), { kind: g[1] });
+        else {
+          const raw = rayToPlane(e, hoverPlane);
+          if (raw) cursor = snap(raw, hoverPlane, null);
+        }
       }
     } else if (tool === 'pushpull') {
       if (op) updateOp(e);
@@ -302,6 +499,15 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     label.text = typed ? `${typed}▏` : text;
   }
 
+  /** Draw the snapped-to point: its shape (corner / midpoint / edge) in its colour. */
+  function showSnapDot(q, kind) {
+    snapDot.geometry.setFromPoints([q]);
+    snapDot.material.map = SHAPES[shapeOf(kind)];
+    snapDot.material.color.set(SNAP_COLORS[kind] ?? BLUE);
+    snapDot.material.needsUpdate = true;
+    snapDot.visible = true;
+  }
+
   function updatePreview() {
     for (const h of helpers) h.visible = false;
     label.pos = null;
@@ -315,8 +521,21 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       marker.position.copy(cursor).addScaledVector(n, 0.01);
       marker.quaternion.setFromUnitVectors(UP, n);
       markerMat.color.set(cursor.kind === 'axis' ? AXIS_COLORS[cursor.axis] : SNAP_COLORS[cursor.kind] ?? BLUE);
-      marker.visible = true;
+      if (cursor.kind === 'parallel' || cursor.kind === 'perp') markerMat.color.set(ALIGN_COLOR);
+      if (SNAP_COLORS[cursor.kind]) showSnapDot(cursor, cursor.kind); // a point: drawn as one
+      else { // elsewhere: a cross, in the colour of the axis / alignment it's on (if any)
+        crossDot.geometry.setFromPoints([cursor]);
+        crossDot.material.color.copy(markerMat.color);
+        crossDot.visible = true;
+      }
     }
+    if (tool === 'move' && !mv && grips) {
+      gripCorners.geometry.setFromPoints(grips.corners);
+      gripMids.geometry.setFromPoints(grips.mids);
+      gripCorners.visible = grips.corners.length > 0;
+      gripMids.visible = grips.mids.length > 0;
+    }
+    if (tool === 'move' && mv && cursor?.snapped) showSnapDot(cursor.snapped, cursor.snapped.kind);
 
     if (tool === 'line' && chain.length && cursor) {
       const a = chain.at(-1);
@@ -345,11 +564,12 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       setPoints(preview, [mv.base, cursor]);
       preview.visible = true;
       label.pos = cursor.clone().addScaledVector(UP, 0.25);
-      label.text = typed ? `${typed}▏` : `${moveVertical ? '↕ ' : ''}${fmt(mv.delta.length())}`;
+      const lock = moveVertical ? '↕ ' : mv.axis ? `${mv.axis.toUpperCase()} ` : '';
+      label.text = typed ? `${typed}▏` : `${lock}${fmt(mv.delta.length())}`;
     }
 
     // Preview lines take the axis colour when the cursor runs along one.
-    previewMat.color.set(cursor?.kind === 'axis' ? AXIS_COLORS[cursor.axis] : BLUE);
+    previewMat.color.set(cursor?.kind === 'axis' ? AXIS_COLORS[cursor.axis] : cursor?.kind === 'parallel' || cursor?.kind === 'perp' ? ALIGN_COLOR : BLUE);
     if (tool === 'measure' && anchor && cursor) {
       if (anchor.edge) {
         // From an edge: the offset to it (straight across) and the guide through the cursor.
@@ -367,8 +587,18 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
         label.text = typed ? `${typed}▏` : fmt(foot.distanceTo(cursor));
       } else {
         setPoints(preview, [anchor, cursor]);
+        const dir = !marksPlace(cursor) && anchor.distanceTo(cursor) > 1e-3 ? acrossDir(anchor, cursor) : null;
+        if (dir) { // the guide it makes: at the end, across the line
+          setPoints(guidePreview, [cursor.clone().addScaledVector(dir, -1000), cursor.clone().addScaledVector(dir, 1000)]);
+          guidePreview.computeLineDistances();
+          const s = getCamera().position.distanceTo(cursor);
+          guideMat.dashSize = 0.008 * s;
+          guideMat.gapSize = 0.006 * s;
+          guidePreview.visible = true;
+        }
         label.pos = anchor.clone().add(cursor).multiplyScalar(0.5);
-        label.text = typed ? `${typed}▏` : fmt(anchor.distanceTo(cursor));
+        const how = (cursor.locked ? '⇥ ' : '') + (cursor.kind === 'parallel' ? '∥ ' : cursor.kind === 'perp' ? '⊥ ' : '');
+        label.text = typed ? `${typed}▏` : `${how}${fmt(anchor.distanceTo(cursor))}`;
       }
       preview.visible = true;
     }
@@ -387,6 +617,13 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
 
     if (tool === 'pushpull') {
       if (op) setLabel(op.anchor.clone().addScaledVector(op.normal, op.d).addScaledVector(UP, 0.25), fmt(op.d));
+      if (op?.snap) {
+        // What it snapped to: the marker there, and a line to it from the pulled face.
+        showSnapDot(op.snap, op.snap.kind);
+        setPoints(preview, [op.anchor.clone().addScaledVector(op.normal, op.d), op.snap]);
+        previewMat.color.set(SNAP_COLORS[op.snap.kind] ?? BLUE);
+        preview.visible = true;
+      }
       else if (hover != null && model.mesh.faces.has(hover)) highlightFace(hover);
     }
     stateListeners.forEach((fn) => fn());
@@ -406,7 +643,24 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   }
 
   // --- drawing actions ---
+  /**
+   * Measure lock, Shift let go: has the mouse left the locked line? Far from it (on screen),
+   * or a little away once it's been kept a moment (so it isn't lost by a small slip).
+   */
+  function lockWavedAway(e) {
+    const cam = getCamera();
+    const r = canvas.getBoundingClientRect();
+    const toScr = (q) => { const v = q.clone().project(cam); return { x: (v.x + 1) / 2 * r.width, y: (1 - v.y) / 2 * r.height }; };
+    const a = toScr(anchor), b = toScr(anchor.clone().addScaledVector(measureLock.dir, 1));
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
+    if (len < 1e-6) return false; // looking straight along it
+    const off = Math.abs((e.clientX - r.left - a.x) * dy - (e.clientY - r.top - a.y) * dx) / len;
+    const age = performance.now() - (measureLock.releasedAt ?? performance.now());
+    return off > 220 || (off > 90 && age > 2000);
+  }
+
   function resetDraw() {
+    measureLock = null;
     chain = [];
     anchor = null;
     anchorPress = false;
@@ -448,13 +702,28 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
         const { foot, dir } = edgeOffset(anchor.edge, c);
         if (marksPlace(c)) model.addMeasurement(foot, c);
         else model.addGuide(c, dir, foot);
-      } else model.addMeasurement(anchor, c);
+      } else {
+        // Ending in open space (on a face, the ground), from anywhere: a guide at the end,
+        // across the measured line, labelled with the distance (like measuring from an edge).
+        // (Ending on a corner / edge: that's marked already: a measurement.)
+        const across = !marksPlace(c) ? acrossDir(anchor, c) : null;
+        if (across) model.addGuide(c, across, anchor);
+        else model.addMeasurement(anchor, c);
+      }
     }
     resetDraw();
   }
 
   /** Is the point on something that already marks the place (corner, midpoint, edge, guide)? */
-  const marksPlace = (c) => ['vertex', 'mid', 'edge', 'guide'].includes(c?.kind);
+  const marksPlace = (c) => ['vertex', 'cross', 'mid', 'edge', 'guide'].includes(c?.kind);
+  /** On the surface being measured on: the direction across the line a → c (or null). */
+  const acrossDir = (a, c) => {
+    const d = c.clone().sub(a);
+    const n = (plane ?? hoverPlane).n;
+    const across = new THREE.Vector3().crossVectors(n, d);
+    if (across.lengthSq() < 1e-10) across.crossVectors(UP, d); // measured straight off the surface
+    return across.lengthSq() < 1e-10 ? null : across.normalize();
+  };
 
   /** For a line [A, B] and a point c: the point on the line nearest c, and the line's direction. */
   function edgeOffset([A, B], c) {
@@ -472,7 +741,34 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     // Distances that bring the face level with another corner (e.g. through a wall).
     const levels = new Set();
     for (const v of m.vertices.values()) { const dd = normal.dot(v) - base; if (Math.abs(dd) > 1e-3) levels.add(round6(dd)); }
+    // Corners, edges and faces to snap to while pulling (as they are now; every group, also
+    // while editing one; not the face's own corners). Faces: other objects' faces facing the
+    // same way (pull level with them), as outlines on their plane.
+    const own = new Set(m.faces.get(hit.face).loops.flat());
+    const snapPts = [], snapSegs = [], snapFaces = [];
+    for (const mesh of model.meshes) {
+      for (const [id, v] of mesh.vertices) if (!(mesh === m && own.has(id))) snapPts.push(v.clone());
+      for (const ed of mesh.edges.values()) {
+        if (ed.soft || (mesh === m && own.has(ed.a) && own.has(ed.b))) continue;
+        snapSegs.push([mesh.vertices.get(ed.a).clone(), mesh.vertices.get(ed.b).clone()]);
+      }
+      if (mesh === m) continue;
+      for (const [id, f] of mesh.faces) {
+        const fp = mesh.facePlane(id);
+        if (Math.abs(fp.n.dot(normal)) < 0.999) continue;
+        snapFaces.push({ p: fp, loops: f.loops.map((l) => l.map((v) => fp.to2D(mesh.vertices.get(v)))) });
+      }
+    }
+    snapPts.push(...notePoints().map((q) => q.clone()));
+    const ownPts = new Set([...own].map((id) => m.vertices.get(id)));
+    const crossPts = crossings((A, B) => ownPts.has(A) || ownPts.has(B)).map((q) => q.clone());
     op = {
+      crossPts,
+      base,
+      snapPts,
+      snapSegs,
+      snapFaces,
+      snap: null, // the corner / edge point snapped to (shown with the marker)
       data: m.toData(),
       faceIndex: [...m.faces.keys()].indexOf(hit.face),
       normal,
@@ -483,6 +779,64 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       d: 0,
     };
     hover = null;
+  }
+
+  /** Push / pull: the corner (else the point of an edge) under the mouse on screen, or null. */
+  function pullSnap(e) {
+    const cam = getCamera();
+    const r = canvas.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    const scr = (q) => { const v = q.clone().project(cam); return { x: (v.x + 1) / 2 * r.width, y: (1 - v.y) / 2 * r.height, ok: v.z >= -1 && v.z <= 1 }; };
+    let best = null, bestD = 14;
+    for (const q of op.snapPts) {
+      const s = scr(q);
+      const d = Math.hypot(s.x - mx, s.y - my);
+      if (s.ok && d < bestD) { bestD = d; best = Object.assign(q.clone(), { kind: 'vertex' }); }
+    }
+    for (const q of op.crossPts) {
+      const s = scr(q);
+      const d = Math.hypot(s.x - mx, s.y - my);
+      if (s.ok && d < bestD) { bestD = d; best = Object.assign(q.clone(), { kind: 'cross' }); }
+    }
+    if (best) return best;
+    bestD = 9;
+    for (const [A, B] of op.snapSegs) {
+      const a = scr(A), b = scr(B);
+      if (!a.ok || !b.ok) continue;
+      const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
+      if (len2 < 1) continue;
+      const t = THREE.MathUtils.clamp(((mx - a.x) * dx + (my - a.y) * dy) / len2, 0, 1);
+      const d = Math.hypot(a.x + dx * t - mx, a.y + dy * t - my);
+      if (d < bestD) {
+        bestD = d;
+        // The edge's point under the mouse: closest to the mouse ray (exact in perspective).
+        const pt = new THREE.Vector3();
+        raycaster.ray.distanceSqToSegment(A, B, undefined, pt);
+        best = Object.assign(pt, { kind: 'edge' });
+      }
+    }
+    if (best) return best;
+    // A face (of another object) under the mouse, facing the same way: the nearest one.
+    const inside = (poly, q) => {
+      let r = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const a = poly[i], b = poly[j];
+        if ((a.y > q.y) !== (b.y > q.y) && q.x < ((b.x - a.x) * (q.y - a.y)) / (b.y - a.y) + a.x) r = !r;
+      }
+      return r;
+    };
+    let bestT = Infinity;
+    for (const f of op.snapFaces) {
+      const hit = raycaster.ray.intersectPlane(new THREE.Plane(f.p.n, -f.p.d), new THREE.Vector3());
+      if (!hit) continue;
+      const t = hit.distanceTo(raycaster.ray.origin);
+      if (t >= bestT) continue;
+      const q = f.p.to2D(hit);
+      if (!inside(f.loops[0], q) || f.loops.slice(1).some((h) => inside(h, q))) continue;
+      bestT = t;
+      best = Object.assign(hit, { kind: 'face' });
+    }
+    return best;
   }
 
   /** Distance along the face normal under the mouse ray. */
@@ -502,12 +856,17 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       } else {
         d = (b * D.dot(w0) - N.dot(w0)) / denom;
       }
-      // Snap to the level of other corners first, then to the grid step.
-      const r = THREE.MathUtils.clamp(0.012 * camDist, 0.03, 0.4);
-      let best = null;
-      for (const l of op.levels) if (Math.abs(l - d) < r && (best == null || Math.abs(l - d) < Math.abs(best - d))) best = l;
-      if (best != null) d = best;
-      else if (settings.snap) d = Math.round(d / settings.snap) * settings.snap;
+      // Snap (unless it's off): to a corner or an edge under the mouse (the face goes level
+      // with it), else to the level of other corners nearby. (No grid step: like SketchUp,
+      // the pull is free; type a distance for an exact one.)
+      op.snap = settings.snapping ? pullSnap(e) : null;
+      if (op.snap) d = round6(N.dot(op.snap) - op.base);
+      else if (settings.snapping) {
+        const r = THREE.MathUtils.clamp(0.012 * camDist, 0.03, 0.4);
+        let best = null;
+        for (const l of op.levels) if (Math.abs(l - d) < r && (best == null || Math.abs(l - d) < Math.abs(best - d))) best = l;
+        if (best != null) d = best;
+      }
     }
     const m = Mesh.fromData(op.data);
     const fid = [...m.faces.keys()][op.faceIndex];
@@ -593,6 +952,16 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     // Move tool: ↑ switches between moving along the floor and up / down.
     if (tool === 'move' && e.key === 'ArrowUp') {
       moveVertical = !moveVertical;
+      if (moveVertical) moveAxis = null;
+      if (mv && lastPointer) updateMove(lastPointer);
+      consume();
+      return;
+    }
+    // → / ←: lock the move to X / Z (again: unlock).
+    if (tool === 'move' && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+      const a = e.key === 'ArrowRight' ? 'x' : 'z';
+      moveAxis = moveAxis === a ? null : a;
+      if (moveAxis) moveVertical = false;
       if (mv && lastPointer) updateMove(lastPointer);
       consume();
       return;
@@ -614,8 +983,10 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     }
     // Digits and separators; unit letters (m, c: 2.5m, 25mm, 250cm) once a number has started.
     const allowed = tool === 'circle' ? /^[0-9.,;x× s-]$/i : /^[0-9.,;x× -]$/i;
-    const unitKey = typed && /^[mc]$/i.test(e.key);
-    if ((allowed.test(e.key) || unitKey) && !(e.key === ' ' && !typed)) { typed += e.key; consume(); return; }
+    // Digits typed with Shift held (keeping a direction locked) come as symbols: use the key.
+    const key = e.shiftKey && /^Digit[0-9]$/.test(e.code) ? e.code.slice(5) : e.shiftKey && /^Numpad[0-9]$/.test(e.code) ? e.code.slice(6) : e.key;
+    const unitKey = typed && /^[mc]$/i.test(key);
+    if ((allowed.test(key) || unitKey) && !(key === ' ' && !typed)) { typed += key; consume(); return; }
     if (e.key === 'Backspace' && typed) { typed = typed.slice(0, -1); consume(); return; }
     if (e.key === 'Enter' && typed) { applyTyped(); consume(); return; }
     if (e.key === 'Escape' && typed) { typed = ''; consume(); }
@@ -673,6 +1044,72 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   }
 
   /** Nothing selected: Move takes what's under the cursor (as a click with Select would). */
+  /** The [point, kind] nearest to the mouse on screen within `px`, or null. */
+  function nearestOnScreen(e, list, px) {
+    const cam = getCamera();
+    const r = canvas.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    const v = new THREE.Vector3();
+    let best = null, bestD = px;
+    for (const it of list) {
+      v.copy(it[0]).project(cam);
+      if (v.z < -1 || v.z > 1) continue;
+      const d = Math.hypot((v.x + 1) / 2 * r.width - mx, (1 - v.y) / 2 * r.height - my);
+      if (d < bestD) { bestD = d; best = it; }
+    }
+    return best;
+  }
+
+  /**
+   * Move tool: the corners and edge midpoints of what would move (the selection, else what's
+   * under the mouse: what a click would select).
+   */
+  function gripsOf(e) {
+    let keys = [...model.selection];
+    if (!keys.length) {
+      setRay(e);
+      const r = canvas.getBoundingClientRect();
+      const mid = model.pickMeasurement(ndc, getCamera(), { x: r.width, y: r.height });
+      if (mid != null) keys = [mid];
+      else {
+        const { edgeHit, faceHit } = pickAt(e);
+        const m = model.mesh;
+        if (faceHit?.group != null) keys = [`g${faceHit.group}`];
+        else if (edgeHit) keys = m.curveEdges(edgeHit.edge).map((x) => `e${x}`);
+        else if (faceHit) keys = [...m.surface(faceHit.face)].map((f) => `f${f}`);
+      }
+    }
+    const corners = new Set(), mids = [];
+    const edgesOf = (mesh, ids) => {
+      for (const v of ids) corners.add(mesh.vertices.get(v));
+      for (const ed of mesh.edges.values()) {
+        if (ed.soft || ed.curve || !ids.has(ed.a) || !ids.has(ed.b)) continue;
+        mids.push(mesh.vertices.get(ed.a).clone().add(mesh.vertices.get(ed.b)).multiplyScalar(0.5));
+      }
+    };
+    const m = model.mesh, ids = new Set();
+    for (const k of keys) {
+      const id = +k.slice(1);
+      if (k[0] === 'f') m.faces.get(id)?.loops.flat().forEach((v) => ids.add(v));
+      else if (k[0] === 'e') { const ed = m.edges.get(id); if (ed) { ids.add(ed.a); ids.add(ed.b); } }
+      else if (k[0] === 'g') { const g = model.groups.get(id); if (g) edgesOf(g.mesh, new Set(g.mesh.vertices.keys())); }
+      else if (k[0] === 'm') {
+        const it = model.measurements.find((x) => x.id === id);
+        if (it) { corners.add(it.a); corners.add(it.b); mids.push(it.a.clone().add(it.b).multiplyScalar(0.5)); }
+      }
+    }
+    edgesOf(m, ids);
+    // Only the ones in sight (not behind a face): those are the ones to grab.
+    const cam = getCamera();
+    const ray = new THREE.Raycaster();
+    const seen = (q) => {
+      ray.setFromCamera(q.clone().project(cam), cam);
+      const hit = ray.intersectObjects(model.pickables, false)[0];
+      return !hit || hit.distance >= ray.ray.origin.distanceTo(q) - 0.01;
+    };
+    return { corners: [...corners].filter((q) => q && seen(q)), mids: mids.filter(seen) };
+  }
+
   function selectUnder(e) {
     setRay(e);
     const r = canvas.getBoundingClientRect();
@@ -691,7 +1128,10 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     const targets = moveTargets();
     if (!targets.length) return false;
     model.checkpoint();
-    mv = { base: cursor.clone(), targets, exclude: new Set(targets.map((t) => t.p)), delta: new THREE.Vector3(), byPress: true };
+    const exclude = new Set(targets.map((t) => t.p));
+    // Crossings of what stays put (worked out once: what moves doesn't count).
+    const crossPts = crossings((A, B) => exclude.has(A) || exclude.has(B)).map((q) => q.clone());
+    mv = { base: cursor.clone(), targets, exclude, crossPts, delta: new THREE.Vector3(), byPress: true };
     return true;
   }
 
@@ -710,22 +1150,34 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       const n = new THREE.Vector3(look.x, 0, look.z);
       if (n.lengthSq() < 1e-6) n.set(0, 0, 1);
       const raw = rayToPlane(e, makePlane(n.normalize(), mv.base));
-      if (raw) {
-        let dy = raw.y - mv.base.y;
-        if (settings.snap) dy = Math.round(dy / settings.snap) * settings.snap;
-        target = Object.assign(mv.base.clone(), { kind: 'angle' });
+      const pt = screenSnap(e, mv.exclude); // a corner / measurement end: go to its height
+      if (pt || raw) {
+        let dy = (pt ?? raw).y - mv.base.y;
+        if (!pt && settings.snap && settings.snapping) dy = Math.round(dy / settings.snap) * settings.snap;
+        target = Object.assign(mv.base.clone(), { kind: 'axis', axis: 'y', snapped: pt ?? undefined });
         target.y += dy;
       }
+      mv.axis = null;
     } else {
       const floor = makePlane(UP, mv.base);
       const raw = rayToPlane(e, floor);
-      if (raw) target = snap(raw, floor, null, mv.exclude);
-      if (target && shift) {
-        // Shift: straight along X or Z, whichever it's closer to.
+      // A corner / measurement end anywhere (any height) under the mouse, else the floor.
+      const pt = screenSnap(e, mv.exclude);
+      if (pt) target = Object.assign(new THREE.Vector3(pt.x, mv.base.y, pt.z), { kind: pt.kind, snapped: pt });
+      else if (raw) target = snap(raw, floor, null, mv.exclude);
+      // Locked to X / Z (→ / ←; or Shift held: whichever it was closer to when pressed):
+      // straight along it, to where the point lines up.
+      if (!shift) mv.shiftAxis = null;
+      let axis = moveAxis;
+      if (!axis && shift && target) {
         const d = target.clone().sub(mv.base);
-        const axis = Math.abs(d.x) >= Math.abs(d.z) ? 'x' : 'z';
-        const locked = Object.assign(mv.base.clone(), { kind: 'angle' });
-        locked[axis] += d[axis];
+        mv.shiftAxis ??= Math.abs(d.x) >= Math.abs(d.z) ? 'x' : 'z';
+        axis = mv.shiftAxis;
+      }
+      mv.axis = axis;
+      if (target && axis) {
+        const locked = Object.assign(mv.base.clone(), { kind: 'axis', axis, snapped: target.snapped });
+        locked[axis] = target[axis];
         target = locked;
       }
     }
@@ -743,6 +1195,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       model.sync(false);
     }
     mv = null;
+    moveAxis = null;
     typed = '';
   }
   const commitMove = () => endMove(true);
@@ -873,7 +1326,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       model.sync(false); // refresh undo button state
     } else if ((tool === 'rect' || tool === 'circle' || tool === 'measure') && !anchor && cursor) {
       // (Measure from an edge or guide: the line comes along, the result will be a guide.)
-      anchor = Object.assign(cursor.clone(), { edge: tool === 'measure' && (cursor.kind === 'edge' || cursor.kind === 'guide') ? cursor.edge : null });
+      anchor = Object.assign(cursor.clone(), { kind: cursor.kind, edge: tool === 'measure' && (cursor.kind === 'edge' || cursor.kind === 'guide') ? cursor.edge : null });
       plane = hoverPlane;
       anchorPress = true;
     } else if (tool === 'pushpull' && !op) {
@@ -943,8 +1396,19 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     if (lastPointer && (lastPointer.target === canvas || drawing())) updateCursor(lastPointer);
     updatePreview();
   };
-  window.addEventListener('keydown', (e) => { if (e.key === 'Shift') { shift = true; refreshFromLastPointer(); } });
-  window.addEventListener('keyup', (e) => { if (e.key === 'Shift') { shift = false; refreshFromLastPointer(); } });
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Shift' || e.repeat) return;
+    // Measure: Shift again while a lock is kept: drop it (and lock what it's on now, if anything).
+    if (measureLock?.releasedAt) measureLock = null;
+    shift = true;
+    refreshFromLastPointer();
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.key !== 'Shift') return;
+    shift = false;
+    if (measureLock) measureLock.releasedAt = performance.now(); // kept: see lockWavedAway
+    refreshFromLastPointer();
+  });
 
   model.onChange(() => {
     if (op || mv) return;
@@ -977,6 +1441,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   }
 
   return {
+    /** Update the cursor / preview (after a setting such as snapping changes). */
+    refresh: refreshFromLastPointer,
     /** Hide editing helpers (previews, highlights, cursor ring, label); returns a restore function. */
     hideHelpers() {
       const was = helpers.map((o) => o.visible);
