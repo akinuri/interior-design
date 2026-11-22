@@ -5,6 +5,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { Mesh, shapesToMesh } from './mesh.js';
 import { createMeasureView, createGuideView } from './measurements.js';
 import { textureOf } from './materials.js';
+import { booleanOp, isSolid } from './boolean.js';
 
 /*
  * The scene model: edges and faces (see mesh.js), with undo history, rendering,
@@ -688,6 +689,28 @@ export class Model {
     this.groups.set(id, { mesh });
     this.selection = new Set([`g${id}`]);
     this.sync();
+  }
+
+  /**
+   * Boolean of the two selected groups (closed solids), one undo step: 'union', 'subtract'
+   * (the first selected is cut out of the other) or 'intersect'. The result is one group,
+   * selected. Returns null when done, else why not: 'two' (not exactly two groups selected),
+   * 'solid' (one isn't closed), 'empty' (nothing left).
+   */
+  booleanSelection(op) {
+    const ids = this.selectedGroups;
+    if (ids.length !== 2 || this.selection.size !== 2 || this.activeGroup != null) return 'two';
+    const [first, second] = ids.map((id) => this.groups.get(id).mesh);
+    if (!isSolid(first) || !isSolid(second)) return 'solid';
+    const result = op === 'subtract' ? booleanOp(second, first, 'subtract') : booleanOp(first, second, op);
+    if (!result) return 'empty';
+    this.checkpoint();
+    for (const id of ids) this.groups.delete(id);
+    const id = this.nextGroupId++;
+    this.groups.set(id, { mesh: result });
+    this.selection = new Set([`g${id}`]);
+    this.sync();
+    return null;
   }
 
   /** Turn the selected groups back into plain geometry (one undo step); it stays selected. */

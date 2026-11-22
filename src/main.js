@@ -312,6 +312,12 @@ $('sel-delete').addEventListener('click', () => model.deleteSelection());
 $('sel-reverse').addEventListener('click', () => model.reverseSelection());
 $('sel-group').addEventListener('click', () => model.groupSelection());
 $('sel-ungroup').addEventListener('click', () => model.ungroupSelection());
+for (const b of document.querySelectorAll('[data-bool]')) {
+  b.addEventListener('click', () => {
+    const why = model.booleanSelection(b.dataset.bool);
+    if (why) notify(t(`bool.${why}`), true);
+  });
+}
 $('sel-editgroup').addEventListener('click', () => model.enterGroup(model.selectedGroups[0]));
 $('group-close').addEventListener('click', () => model.exitGroup());
 $('sel-close').addEventListener('click', () => model.select([]));
@@ -489,6 +495,7 @@ function refreshUI() {
   if (anything) {
     $('sel-group').hidden = model.activeGroup != null || (!faces.length && !edges.length);
     $('sel-ungroup').hidden = !groups.length;
+    $('sel-bool').hidden = !(groups.length === 2 && model.selection.size === 2 && model.activeGroup == null);
     $('sel-editgroup').hidden = groups.length !== 1;
     document.querySelector('.sel-helpers').hidden = !faces.length && !edges.length;
     const [key, text] = selectionSummary(faces, edges);

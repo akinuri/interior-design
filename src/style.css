@@ -787,3 +787,5 @@ button.icon.lang {
   white-space: nowrap;
   pointer-events: none;
 }
+/* Boolean operations: three buttons across. */
+.sel-helpers.sel-bool { grid-template-columns: repeat(3, 1fr); }
