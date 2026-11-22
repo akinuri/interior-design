@@ -669,7 +669,7 @@ function focusView() {
     notePts.push(ref.clone(), g.p.clone().addScaledVector(g.d, ref.clone().sub(g.p).dot(g.d) / g.d.lengthSq()));
   }
   const some = ids.size || groupPts.length || notePts.length;
-  const pts = some ? [...[...ids].map((v) => m.vertices.get(v).clone()), ...groupPts, ...notePts] : model.allPoints();
+  const pts = (some ? [...[...ids].map((v) => m.vertices.get(v).clone()), ...groupPts, ...notePts] : model.allPoints()).filter((v) => Number.isFinite(v.x + v.y + v.z));
   if (!some) {
     const p = person.getState();
     if (p.placed) pts.push(new THREE.Vector3(p.x, p.y, p.z), new THREE.Vector3(p.x, p.y + p.height, p.z));

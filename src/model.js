@@ -892,7 +892,8 @@ export class Model {
 
   /** Every point of the geometry (groups included), for framing views. */
   allPoints() {
-    return this.meshes.flatMap((m) => [...m.vertices.values()].map((v) => v.clone()));
+    // (Only real numbers: a broken point would wreck the framing.)
+    return this.meshes.flatMap((m) => [...m.vertices.values()].filter((v) => Number.isFinite(v.x + v.y + v.z)).map((v) => v.clone()));
   }
 
   /** Meshes to snap to while drawing: everything outside group editing, else the group. */
