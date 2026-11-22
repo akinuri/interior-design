@@ -866,6 +866,7 @@ window.addEventListener('keydown', (e) => {
     if (person.eye) person.exitEye();
     else if (model.selection.size) model.select([]);
     else if (model.activeGroup != null) model.exitGroup();
+    else tools.setTool('select'); // nothing left to undo: back to the Select tool
   }
   else if (k === 'delete' || k === 'backspace') model.deleteSelection();
 });
