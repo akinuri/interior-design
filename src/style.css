@@ -324,6 +324,26 @@ button.icon.lang {
 .panel .card[open] > summary { border-bottom: 1px solid var(--card-divider); }
 
 /* Preset buttons (Scene card: Natural / Clean). */
+/* Materials card: swatches, the selected one outlined. */
+.mat-list {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.mat-list button {
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-size: cover;
+  background-position: center;
+}
+.mat-list button.active { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* A divider between Add and the materials. */
+.mat-list { border-top: 1px solid var(--border); padding-top: 8px; }
+.mat-edit[hidden] { display: none; }
+.mat-edit { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
+
 .panel .presets {
   display: flex;
   gap: 6px;

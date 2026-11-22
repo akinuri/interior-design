@@ -7,6 +7,7 @@ import { createRenderPipeline } from './render.js';
 import { createSceneSettings, pickValid, changedFrom } from './sceneSettings.js';
 import { createTools, MIN_SIDES, MAX_SIDES } from './tools.js';
 import { cm, formatLength, formatArea } from './units.js';
+import { thumbnail, builtinSize, readImageFile, unitsOf } from './materials.js';
 import { createPerson } from './person.js';
 import { createOrbitCenter } from './orbitCenter.js';
 import { createSideGrid } from './sideGrid.js';
@@ -316,7 +317,7 @@ $('group-close').addEventListener('click', () => model.exitGroup());
 $('sel-close').addEventListener('click', () => model.select([]));
 
 $('set-color').value = settings.color;
-$('set-color').addEventListener('input', (e) => { settings.color = e.target.value; saveDrawing(); });
+$('set-color').addEventListener('input', (e) => { settings.color = e.target.value; saveDrawing(); refreshMaterials(); });
 tools.onSidesChange(saveDrawing); // circle sides: typed with the Circle tool, shown at the cursor
 
 // Face colour: preview live while the picker is open, commit one undo step on close.
@@ -331,6 +332,98 @@ $('sel-color').addEventListener('change', (e) => {
   pickingColor = false;
   model.commitColor(e.target.value);
 });
+
+// --- materials ---
+let editingMaterial = null; // id shown in the Materials card editor ('default': the colour new faces get)
+function refreshMaterials() {
+  const list = $('mat-list');
+  // First the default material (plain colour for new faces), then the scene's materials.
+  const def = document.createElement('button');
+  def.type = 'button';
+  def.title = t('mat.default');
+  def.setAttribute('aria-label', t('mat.default'));
+  def.style.backgroundColor = settings.color;
+  def.classList.toggle('active', editingMaterial === 'default');
+  def.addEventListener('click', () => { editingMaterial = editingMaterial === 'default' ? null : 'default'; refreshMaterials(); });
+  list.replaceChildren(def, ...model.materials.map((m) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.title = m.name;
+    b.setAttribute('aria-label', m.name);
+    b.style.backgroundImage = `url("${thumbnail(m, model.images)}")`;
+    b.style.backgroundColor = m.color;
+    b.style.backgroundBlendMode = 'multiply';
+    b.classList.toggle('active', m.id === editingMaterial);
+    b.addEventListener('click', () => { editingMaterial = editingMaterial === m.id ? null : m.id; refreshMaterials(); });
+    return b;
+  }));
+  const isDefault = editingMaterial === 'default';
+  const m = model.materialById(editingMaterial);
+  if (!m && !isDefault) editingMaterial = null;
+  $('mat-edit').hidden = !m && !isDefault;
+  $('mat-row-default').hidden = !isDefault;
+  for (const id of ['mat-row-name', 'mat-row-tint', 'mat-row-w', 'mat-row-h', 'mat-row-rot', 'mat-delete']) $(id).hidden = isDefault;
+  $('mat-apply').disabled = model.selectionMaterial() === undefined;
+  if (m) {
+    // Sizes per tile / plank / brick (a repeat may hold several).
+    const u = unitsOf(m);
+    for (const [id, v] of [['mat-name', m.name], ['mat-color', m.color], ['mat-w', cm(m.size[0] / u[0])], ['mat-h', cm(m.size[1] / u[1])], ['mat-rot', m.rotation]]) {
+      if (document.activeElement !== $(id)) $(id).value = String(v);
+    }
+  }
+  // Selection card: the material dropdown.
+  const sel = $('sel-material');
+  sel.replaceChildren(new Option(t('mat.none'), ''), ...model.materials.map((x) => new Option(x.name, x.id)));
+  const state = model.selectionMaterial();
+  $('sel-row-material').hidden = state === undefined || (!model.materials.length && !state);
+  if (state === null) sel.prepend(new Option(t('mat.mixed'), '__mixed'));
+  sel.value = state === null ? '__mixed' : state ?? '';
+}
+model.onChange(refreshMaterials);
+onLangChange(refreshMaterials);
+refreshMaterials();
+
+$('mat-add').addEventListener('change', async (e) => {
+  const kind = e.target.value;
+  e.target.value = '';
+  if (!kind) return;
+  if (kind === 'image') {
+    const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
+    input.addEventListener('change', async () => {
+      const file = input.files[0];
+      if (!file) return;
+      try {
+        const { dataURL, aspect } = await readImageFile(file);
+        // One repeat of the picture: 1 m wide by default, its height from the picture's shape.
+        editingMaterial = model.addMaterial({ name: file.name.replace(/\.[^.]+$/, ''), imageDataURL: dataURL, size: [1, 1 / aspect] });
+        refreshMaterials();
+      } catch { notify(t('mat.badImage', { name: file.name }), true); }
+    });
+    input.click();
+    return;
+  }
+  editingMaterial = model.addMaterial({ name: t(`mat.b.${kind}`), builtin: kind, size: builtinSize(kind) });
+  refreshMaterials();
+});
+$('mat-name').addEventListener('change', (e) => model.updateMaterial(editingMaterial, { name: e.target.value }));
+$('mat-color').addEventListener('input', (e) => model.updateMaterial(editingMaterial, { color: e.target.value }, { live: true }));
+$('mat-color').addEventListener('change', (e) => model.updateMaterial(editingMaterial, { color: e.target.value }));
+const matSize = () => {
+  const u = unitsOf(model.materialById(editingMaterial) ?? {});
+  return [parseFloat($('mat-w').value) / 100 * u[0], parseFloat($('mat-h').value) / 100 * u[1]];
+};
+for (const id of ['mat-w', 'mat-h']) {
+  $(id).addEventListener('input', () => { const s = matSize(); if (s.every((v) => v > 0)) model.updateMaterial(editingMaterial, { size: s }, { live: true }); });
+  $(id).addEventListener('change', () => { const s = matSize(); if (s.every((v) => v > 0)) model.updateMaterial(editingMaterial, { size: s }); else refreshMaterials(); });
+}
+$('mat-rot').addEventListener('input', (e) => model.updateMaterial(editingMaterial, { rotation: parseFloat(e.target.value) || 0 }, { live: true }));
+$('mat-rot').addEventListener('change', (e) => model.updateMaterial(editingMaterial, { rotation: parseFloat(e.target.value) || 0 }));
+$('mat-apply').addEventListener('click', () => {
+  if (editingMaterial === 'default') model.applyDefaultMaterial(settings.color);
+  else model.setSelectionMaterial(editingMaterial);
+});
+$('mat-delete').addEventListener('click', () => { model.deleteMaterial(editingMaterial); editingMaterial = null; refreshMaterials(); });
+$('sel-material').addEventListener('change', (e) => { if (e.target.value !== '__mixed') model.setSelectionMaterial(e.target.value || null); });
 
 // Guides: show / hide the offset label (the measurement back to the edge they came from).
 $('sel-glabel').addEventListener('change', (e) => model.setGuideLabel(e.target.checked));

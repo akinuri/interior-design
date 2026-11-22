@@ -93,10 +93,31 @@
 
     <aside class="panel">
       <div class="scroll-shadow top" aria-hidden="true"></div>
-      <details class="card" data-card="drawing" open>
-        <summary data-i18n="card.drawing">Drawing</summary>
+      <details class="card" data-card="materials" open>
+        <summary data-i18n="card.materials">Materials</summary>
         <div class="card-body">
-          <label><span data-i18n="f.newColor">Color for new shapes</span> <input id="set-color" type="color" value="#ffffff" /></label>
+          <label><span data-i18n="mat.add">Add</span>
+            <select id="mat-add">
+              <option value="" data-i18n="mat.addPick">Choose…</option>
+              <option value="tiles" data-i18n="mat.b.tiles">Tiles</option>
+              <option value="wood" data-i18n="mat.b.wood">Wood planks</option>
+              <option value="brick" data-i18n="mat.b.brick">Brick</option>
+              <option value="concrete" data-i18n="mat.b.concrete">Concrete</option>
+              <option value="image" data-i18n="mat.fromImage">From image…</option>
+            </select>
+          </label>
+          <div id="mat-list" class="mat-list"></div>
+          <div id="mat-edit" class="mat-edit" hidden>
+            <!-- The default material: the plain colour new faces get. -->
+            <label id="mat-row-default" data-i18n-title="mat.defaultColor.tip"><span data-i18n="mat.defaultColor">Color for new faces</span> <input id="set-color" type="color" value="#ffffff" /></label>
+            <label id="mat-row-name"><span data-i18n="mat.name">Name</span> <input id="mat-name" type="text" maxlength="60" /></label>
+            <label id="mat-row-tint"><span data-i18n="mat.tint">Tint</span> <input id="mat-color" type="color" /></label>
+            <label id="mat-row-w"><span data-i18n="mat.width">Width (cm)</span> <input id="mat-w" type="number" min="1" step="1" /></label>
+            <label id="mat-row-h"><span data-i18n="mat.height">Height (cm)</span> <input id="mat-h" type="number" min="1" step="1" /></label>
+            <label id="mat-row-rot"><span data-i18n="mat.rotation">Rotation (°)</span> <input id="mat-rot" type="number" step="15" /></label>
+            <button id="mat-apply" data-i18n="mat.apply" data-i18n-title="mat.apply.tip">Apply to selection</button>
+            <button id="mat-delete" class="danger" data-i18n="mat.delete">Delete material</button>
+          </div>
         </div>
       </details>
       <details class="card" data-card="view">
@@ -173,6 +194,7 @@
         <div class="card-body">
           <label><span id="sel-size-label" data-i18n="f.selected">Selected</span> <output id="sel-size"></output></label>
           <label id="sel-row-glabel" data-i18n-title="f.guideLabel.tip"><span data-i18n="f.guideLabel">Offset label</span> <input id="sel-glabel" type="checkbox" class="check" /></label>
+          <label id="sel-row-material"><span data-i18n="mat.material">Material</span> <select id="sel-material"></select></label>
           <label id="sel-row-color"><span data-i18n="f.color">Color</span> <input id="sel-color" type="color" /></label>
           <div class="sel-helpers">
             <button data-select="loop" data-i18n="btn.loop" data-i18n-title="btn.loop.tip">Loop</button>

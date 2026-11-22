@@ -4,6 +4,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { Mesh, shapesToMesh } from './mesh.js';
 import { createMeasureView, createGuideView } from './measurements.js';
+import { textureOf } from './materials.js';
 
 /*
  * The scene model: edges and faces (see mesh.js), with undo history, rendering,
@@ -172,7 +173,10 @@ const faceUniforms = {
 // no shading), x-ray (see-through), wireframe (edges only).
 export const FACE_STYLES = ['shaded', 'mono', 'hidden', 'xray', 'wire'];
 let faceStyle = 'shaded';
-for (const mat of [faceMat, groundFaceMat]) {
+// Every face material (plain and textured) gets the same shader additions; face styles
+// change them all.
+const faceMaterials = new Set([faceMat, groundFaceMat]);
+function patchFaceMaterial(mat) {
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, faceUniforms);
     shader.vertexShader = shader.vertexShader
@@ -215,17 +219,40 @@ for (const mat of [faceMat, groundFaceMat]) {
       ].join('\n'));
   };
 }
+patchFaceMaterial(faceMat);
+patchFaceMaterial(groundFaceMat);
+
+/** A face material with a texture (one per scene material and ground / not), shaped like the plain ones. */
+const texturedMats = new Map(); // "materialId|ground" → THREE material
+function texturedMaterial(id, ground, texture) {
+  const key = `${id}|${ground ? 'g' : 'n'}`;
+  let m = texturedMats.get(key);
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.9, side: THREE.DoubleSide,
+      ...(ground ? {} : { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }),
+    });
+    patchFaceMaterial(m);
+    faceMaterials.add(m);
+    texturedMats.set(key, m);
+    applyFaceStyleTo(m);
+  }
+  if (m.map !== texture) { m.map = texture; m.needsUpdate = true; }
+  return m;
+}
 
 /** Face style (from the Rendering settings): one of FACE_STYLES. */
 export function setFaceStyle(style) {
   faceStyle = FACE_STYLES.includes(style) ? style : 'shaded';
   faceUniforms.uStyle.value = FACE_STYLES.indexOf(faceStyle);
+  faceMaterials.forEach(applyFaceStyleTo);
+}
+
+function applyFaceStyleTo(m) {
   const xray = faceStyle === 'xray';
-  for (const m of [faceMat, groundFaceMat]) {
-    if (m.transparent !== xray) { m.transparent = xray; m.depthWrite = !xray; m.needsUpdate = true; }
-    m.opacity = xray ? 0.45 : 1;
-    m.visible = faceStyle !== 'wire';
-  }
+  if (m.transparent !== xray) { m.transparent = xray; m.depthWrite = !xray; m.needsUpdate = true; }
+  m.opacity = xray ? 0.45 : 1;
+  m.visible = faceStyle !== 'wire';
 }
 
 /** Back face colouring (from the Rendering settings). */
@@ -252,6 +279,21 @@ export function setEdgeLines({ visible, opacity }) {
   edgeMat.visible = visible && opacity > 0;
 }
 
+/** A material's settings, made valid (sizes in m, at least 1 cm). */
+function cleanMaterial(m) {
+  const num = (v, d) => (Number.isFinite(v) ? v : d);
+  const size = Array.isArray(m.size) ? m.size : [];
+  return {
+    id: m.id,
+    name: typeof m.name === 'string' && m.name.trim() ? m.name.trim().slice(0, 60) : 'Material',
+    color: typeof m.color === 'string' && /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : '#ffffff',
+    ...(typeof m.builtin === 'string' ? { builtin: m.builtin } : {}),
+    ...(typeof m.image === 'string' && !m.image.startsWith('data:') ? { image: m.image } : {}),
+    size: [Math.max(0.01, num(size[0], 1)), Math.max(0.01, num(size[1], 1))],
+    rotation: num(m.rotation, 0) % 360,
+  };
+}
+
 // --- the model -----------------------------------------------------------------------------
 
 export class Model {
@@ -265,6 +307,10 @@ export class Model {
     this.measurements = []; // { id, a, b } (Measure tool), points in metres
     this.nextMeasureId = 1;
     this.measureView = createMeasureView(scene);
+    this.materials = []; // { id, name, color, builtin? | image?, size: [w, h] m, rotation } (see materials.js)
+    this.images = new Map(); // image id → data URL (kept out of the undo history)
+    this.nextMaterialId = 1;
+    this.nextImageId = 1;
     this.guides = []; // { id, p, d } (Measure tool from an edge): infinite lines to snap to
     this.nextGuideId = 1;
     this.guideView = createGuideView(scene);
@@ -312,6 +358,7 @@ export class Model {
       root: this.root.toData(), groups: [...this.groups].map(([id, g]) => [id, g.mesh.toData()]), active: this.activeGroup,
       measurements: this.measurements.map((m) => [m.id, m.a.toArray(), m.b.toArray()]),
       guides: this.guides.map((g) => [g.id, g.p.toArray(), g.d.toArray(), { from: g.from?.toArray(), label: g.label }]),
+      materials: this.materials,
     };
     return { data: JSON.stringify(data), extraValue: this.extraState.get(), extra };
   }
@@ -330,6 +377,7 @@ export class Model {
     this.measurements = data.measurements.map(([id, a, b]) => ({ id, a: new THREE.Vector3(...a), b: new THREE.Vector3(...b) }));
     this.nextMeasureId = Math.max(this.nextMeasureId, ...this.measurements.map((m) => m.id), 0) + 1;
     this.guides = data.guides.map(([id, p, d, o]) => ({ id, p: new THREE.Vector3(...p), d: new THREE.Vector3(...d), label: o.label, from: o.from ? new THREE.Vector3(...o.from) : null }));
+    this.materials = data.materials;
     this.nextGuideId = Math.max(this.nextGuideId, ...this.guides.map((g) => g.id), 0) + 1;
     this.selection.clear();
     if (step.extra) this.extraState.set(step.extraValue);
@@ -386,9 +434,12 @@ export class Model {
     const r = (v) => v.toArray().map((x) => Math.round(x * 1e6) / 1e6);
     const measurements = this.measurements.map((m) => ({ a: r(m.a), b: r(m.b) }));
     const guides = this.guides.map((g) => ({ p: r(g.p), d: r(g.d), ...(g.from ? { from: r(g.from) } : {}), ...(g.label === false ? { label: false } : {}) }));
+    // Materials go with their picture (a data URL), so a design file is complete on its own.
+    const materials = this.materials.map(({ image, ...m }) => ({ ...m, ...(image ? { image: this.images.get(image) } : {}) }));
     return {
       geometry: this.root.toData(), ...(groups.length ? { groups } : {}),
       ...(measurements.length ? { measurements } : {}), ...(guides.length ? { guides } : {}),
+      ...(materials.length ? { materials } : {}),
     };
   }
 
@@ -409,12 +460,94 @@ export class Model {
       const a = point(m?.a), b = point(m?.b);
       if (a && b) this.measurements.push({ id: this.nextMeasureId++, a, b });
     }
+    this.materials = [];
+    this.images = new Map();
+    this.nextMaterialId = 1;
+    this.nextImageId = 1;
+    for (const m of Array.isArray(data?.materials) ? data.materials : []) {
+      if (typeof m?.id !== 'string') continue;
+      const mat = cleanMaterial(m);
+      if (typeof m.image === 'string' && m.image.startsWith('data:image/')) {
+        mat.image = `img${this.nextImageId++}`;
+        this.images.set(mat.image, m.image);
+      }
+      if (!mat.builtin && !mat.image) continue;
+      this.materials.push(mat);
+      const n = parseInt(mat.id.replace(/\D/g, ''), 10);
+      if (Number.isFinite(n)) this.nextMaterialId = Math.max(this.nextMaterialId, n + 1);
+    }
     this.guides = [];
     this.nextGuideId = 1;
     for (const g of Array.isArray(data?.guides) ? data.guides : []) {
       const p = point(g?.p), d = point(g?.d);
       if (p && d && d.lengthSq() > 1e-12) this.guides.push({ id: this.nextGuideId++, p, d: d.normalize(), from: point(g.from), ...(g.label === false ? { label: false } : {}) });
     }
+  }
+
+  // --- materials ---
+  materialById(id) { return this.materials.find((m) => m.id === id) ?? null; }
+
+  /** Add a material (one undo step): { name, builtin } or { name, imageDataURL }, size, color, rotation. Returns its id. */
+  addMaterial({ name, builtin = null, imageDataURL = null, size, color = '#ffffff', rotation = 0 }) {
+    this.checkpoint();
+    const mat = cleanMaterial({ id: `mat${this.nextMaterialId++}`, name, builtin, size, color, rotation });
+    if (imageDataURL) {
+      mat.image = `img${this.nextImageId++}`;
+      this.images.set(mat.image, imageDataURL);
+    }
+    this.materials.push(mat);
+    this.sync();
+    return mat.id;
+  }
+
+  /** Change a material's settings. `live`: while dragging / typing (one undo step on the commit). */
+  updateMaterial(id, patch, { live = false } = {}) {
+    const i = this.materials.findIndex((m) => m.id === id);
+    if (i < 0) return;
+    if (live) this.materialBefore ??= this.materials[i];
+    else {
+      if (this.materialBefore) { this.materials[i] = this.materialBefore; this.materialBefore = null; }
+      this.checkpoint();
+    }
+    this.materials[i] = cleanMaterial({ ...this.materials[i], ...patch });
+    this.sync(!live);
+  }
+
+  /** Remove a material (one undo step); faces using it go back to their colour. */
+  deleteMaterial(id) {
+    this.checkpoint();
+    this.materials = this.materials.filter((m) => m.id !== id);
+    for (const mesh of this.meshes) for (const f of mesh.faces.values()) if (f.material === id) delete f.material;
+    this.sync();
+  }
+
+  /** The selected faces' material: an id, '' for none, null if mixed, undefined without faces. */
+  selectionMaterial() {
+    const t = this.colorTargets();
+    if (!t.length) return undefined;
+    const ids = new Set(t.map(([m, f]) => m.faces.get(f).material ?? ''));
+    return ids.size === 1 ? [...ids][0] : null;
+  }
+
+  /** The default material on the selected faces / groups: no texture, the given colour (one undo step). */
+  applyDefaultMaterial(color) {
+    const t = this.colorTargets();
+    if (!t.length) return;
+    this.checkpoint();
+    for (const [m, f] of t) { const face = m.faces.get(f); delete face.material; face.color = color; }
+    this.sync();
+  }
+
+  /** Put a material (or none: null) on the selected faces / groups (one undo step). */
+  setSelectionMaterial(id) {
+    const t = this.colorTargets();
+    if (!t.length) return;
+    this.checkpoint();
+    for (const [m, f] of t) {
+      const face = m.faces.get(f);
+      if (id) face.material = id; else delete face.material;
+    }
+    this.sync();
   }
 
   // --- guides ---
@@ -899,16 +1032,33 @@ export class Model {
       }
     }
 
-    const bucket = () => ({ pos: [], nor: [], col: [], sel: [], ids: [] });
-    const buckets = { ground: bucket(), normal: bucket() };
+    // One bucket per (on the ground or not) × (material); textured ones get texture coordinates.
+    const buckets = new Map();
+    const bucketFor = (ground, mat) => {
+      const key = `${ground ? 'g' : 'n'}|${mat?.id ?? ''}`;
+      if (!buckets.has(key)) buckets.set(key, { ground, mat, pos: [], nor: [], col: [], sel: [], uv: [], ids: [] });
+      return buckets.get(key);
+    };
     const color = new THREE.Color();
     for (const [id, f] of m.faces) {
       const n = normals.get(id);
       const flatOnGround = Math.abs(n.y) > 0.999 && f.loops[0].every((v) => onGround(m.vertices.get(v)));
-      const b = flatOnGround ? buckets.ground : buckets.normal;
+      const mat = f.material ? this.materialById(f.material) : null;
+      const tex = mat && !faded ? textureOf(mat, this.images) : null;
+      const b = bucketFor(flatOnGround, tex ? mat : null);
       const g = find(id);
       const soft = groupSize.get(g) > 1;
-      color.set(f.color);
+      color.set(tex ? mat.color : f.color); // textured: the material's tint
+      // Texture laid flat on the face, at real size, aligned to the world (tiles line up across faces).
+      let uvOf = null;
+      if (tex) {
+        const plane = m.facePlane(id);
+        const a = THREE.MathUtils.degToRad(mat.rotation), cos = Math.cos(a), sin = Math.sin(a);
+        uvOf = (p) => {
+          const s = p.dot(plane.u), t = p.dot(plane.v);
+          return [(s * cos - t * sin) / mat.size[0], (s * sin + t * cos) / mat.size[1]];
+        };
+      }
       // Selected faces are tinted in the shader (an overlay would fight the faces in depth).
       const selected = active && this.selection.has(`f${id}`) ? 1 : 0;
       for (const tri of m.faceTriangles(id)) {
@@ -918,20 +1068,25 @@ export class Model {
           b.nor.push(vn.x, vn.y, vn.z);
           b.col.push(color.r, color.g, color.b);
           b.sel.push(selected);
+          if (uvOf) b.uv.push(...uvOf(p));
         });
         b.ids.push(id);
       }
     }
-    for (const [key, b] of Object.entries(buckets)) {
+    for (const b of buckets.values()) {
       if (!b.ids.length) continue;
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
       geo.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3));
       geo.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
       geo.setAttribute('aSelected', new THREE.Float32BufferAttribute(b.sel, 1));
+      if (b.mat) geo.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
       geo.computeBoundingSphere();
-      const mesh = new THREE.Mesh(geo, faded ? fadedFaceMat : key === 'ground' ? groundFaceMat : faceMat);
-      mesh.castShadow = key !== 'ground' && !faded;
+      const material = faded ? fadedFaceMat
+        : b.mat ? texturedMaterial(b.mat.id, b.ground, textureOf(b.mat, this.images))
+          : b.ground ? groundFaceMat : faceMat;
+      const mesh = new THREE.Mesh(geo, material);
+      mesh.castShadow = !b.ground && !faded;
       mesh.receiveShadow = !faded;
       mesh.userData = { faceIds: b.ids, groupId, mesh: m };
       if (faded) mesh.userData.noAO = true;
