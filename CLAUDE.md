@@ -71,7 +71,7 @@ README.md describes the features for users; this file is what you need to keep d
   out of the other (SketchUp). Result is one group; cut faces take the cutter's colour / material.
 - **Esc** repeatedly: cancel → leave eye view → deselect → leave group → Select tool.
 - **Person** stands on the floor-like face under them (`state.y`); walks up steps ≤ 35 cm, falls off edges.
-- **Materials**: the look and real size (per tile / plank / brick: `units` in `materials.js`) and a base rotation.
+- **Materials**: the look (with brightness / contrast / saturation: `adjust`, baked into a per-material texture copy) and real size (per tile / plank / brick: `units` in `materials.js`) and a base rotation.
   Where the pattern sits is **per face** (`face.tex`: offset, rotation, and an own size only if set; without it the
   face shows and follows the material's size; Selection card), since one material
   is used on many faces; it travels with the face like its material (splits, push/pull caps, copies, booleans).

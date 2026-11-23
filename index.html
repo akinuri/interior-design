@@ -122,6 +122,14 @@
             <label id="mat-row-w"><span data-i18n="mat.width">Width (cm)</span> <input id="mat-w" type="number" min="1" step="1" /></label>
             <label id="mat-row-h"><span data-i18n="mat.height">Height (cm)</span> <input id="mat-h" type="number" min="1" step="1" /></label>
             <label id="mat-row-rot"><span data-i18n="mat.rotation">Rotation (°)</span> <input id="mat-rot" type="number" step="15" /></label>
+            <div id="mat-adjust" class="mat-adjust">
+              <label><span data-i18n="mat.brightness">Brightness</span> <output id="mat-brightness-value"></output></label>
+              <input id="mat-brightness" type="range" min="-100" max="100" step="1" data-i18n-title="mat.adjust.tip" />
+              <label><span data-i18n="mat.contrast">Contrast</span> <output id="mat-contrast-value"></output></label>
+              <input id="mat-contrast" type="range" min="-100" max="100" step="1" data-i18n-title="mat.adjust.tip" />
+              <label><span data-i18n="mat.saturation">Saturation</span> <output id="mat-saturation-value"></output></label>
+              <input id="mat-saturation" type="range" min="-100" max="100" step="1" data-i18n-title="mat.adjust.tip" />
+            </div>
             <label id="mat-row-opacity"><span data-i18n="mat.opacity">Opacity</span> <output id="mat-opacity-value"></output></label>
             <input id="mat-opacity" type="range" min="5" max="100" step="1" />
             <button id="mat-apply" data-i18n="mat.apply" data-i18n-title="mat.apply.tip">Apply to selection</button>

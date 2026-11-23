@@ -4,7 +4,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { Mesh, shapesToMesh, cleanTex } from './mesh.js';
 import { createMeasureView, createGuideView } from './measurements.js';
-import { textureOf, isGlass, GLASS_OPACITY, unitsOf } from './materials.js';
+import { textureOf, isGlass, GLASS_OPACITY, unitsOf, ADJUSTS } from './materials.js';
 import { booleanOp, isSolid } from './boolean.js';
 
 /*
@@ -300,6 +300,12 @@ function cleanMaterial(m) {
     ...(typeof m.image === 'string' && !m.image.startsWith('data:') ? { image: m.image } : {}),
     size: [Math.max(0.01, num(size[0], 1)), Math.max(0.01, num(size[1], 1))],
     rotation: num(m.rotation, 0) % 360,
+    // Picture adjustments, -1 … 1 each; kept only when something is changed.
+    ...(() => {
+      const adj = {};
+      for (const k of ADJUSTS) { const v = num(m.adjust?.[k], 0); if (Math.abs(v) > 1e-6) adj[k] = Math.min(1, Math.max(-1, v)); }
+      return Object.keys(adj).length ? { adjust: adj } : {};
+    })(),
     // (Where the pattern sits is per face: `tex` on faces, see cleanTex in mesh.js.)
   };
 }

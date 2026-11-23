@@ -7,7 +7,7 @@ import { createRenderPipeline } from './render.js';
 import { createSceneSettings, pickValid, changedFrom } from './sceneSettings.js';
 import { createTools, MIN_SIDES, MAX_SIDES } from './tools.js';
 import { cm, formatLength, formatArea } from './units.js';
-import { thumbnail, builtinSize, readImageFile, unitsOf, isGlass, GLASS_OPACITY } from './materials.js';
+import { thumbnail, builtinSize, readImageFile, unitsOf, isGlass, GLASS_OPACITY, ADJUSTS, adjustFilter } from './materials.js';
 import { createPerson } from './person.js';
 import { createOrbitCenter } from './orbitCenter.js';
 import { createSideGrid } from './sideGrid.js';
@@ -348,6 +348,7 @@ $('sel-color').addEventListener('change', (e) => {
 });
 
 // --- materials ---
+const signed = (pct) => (pct > 0 ? `+${pct}` : String(pct));
 let editingMaterial = null; // id shown in the Materials card editor ('default': the colour new faces get)
 function refreshMaterials() {
   const list = $('mat-list');
@@ -364,9 +365,11 @@ function refreshMaterials() {
     b.type = 'button';
     b.title = m.name;
     b.setAttribute('aria-label', m.name);
-    b.style.backgroundImage = `url("${thumbnail(m, model.images)}")`;
-    b.style.backgroundColor = m.color;
-    b.style.backgroundBlendMode = 'multiply';
+    const pic = document.createElement('span');
+    pic.style.backgroundImage = `url("${thumbnail(m, model.images)}")`;
+    pic.style.backgroundColor = m.color;
+    pic.style.filter = adjustFilter(m);
+    b.append(pic);
     b.classList.toggle('active', m.id === editingMaterial);
     b.addEventListener('click', () => { editingMaterial = editingMaterial === m.id ? null : m.id; refreshMaterials(); });
     return b;
@@ -381,6 +384,15 @@ function refreshMaterials() {
   const glass = isGlass(m);
   for (const id of ['mat-row-w', 'mat-row-h', 'mat-row-rot']) if (glass) $(id).hidden = true;
   $('mat-row-opacity').hidden = $('mat-opacity').hidden = !glass;
+  // Brightness / contrast / saturation of the picture (not for glass: it has none).
+  $('mat-adjust').hidden = !m || glass;
+  if (m && !glass) {
+    for (const k of ADJUSTS) {
+      const pct = Math.round((m.adjust?.[k] ?? 0) * 100);
+      $(`mat-${k}-value`).textContent = signed(pct);
+      if (document.activeElement !== $(`mat-${k}`)) $(`mat-${k}`).value = String(pct);
+    }
+  }
   if (glass) {
     const pct = Math.round((m.opacity ?? GLASS_OPACITY) * 100);
     $('mat-opacity-value').textContent = `${pct}%`;
@@ -466,6 +478,17 @@ $('mat-opacity').addEventListener('input', (e) => {
   model.updateMaterial(editingMaterial, { opacity: e.target.value / 100 }, { live: true });
 });
 $('mat-opacity').addEventListener('change', (e) => model.updateMaterial(editingMaterial, { opacity: e.target.value / 100 }));
+for (const k of ADJUSTS) {
+  const el = $(`mat-${k}`);
+  const patch = (v) => ({ adjust: { ...model.materialById(editingMaterial)?.adjust, [k]: v / 100 } });
+  el.addEventListener('input', () => {
+    $(`mat-${k}-value`).textContent = signed(+el.value);
+    model.updateMaterial(editingMaterial, patch(+el.value), { live: true });
+  });
+  el.addEventListener('change', () => model.updateMaterial(editingMaterial, patch(+el.value)));
+  // Double-click: back to as it is.
+  el.addEventListener('dblclick', () => { el.value = '0'; model.updateMaterial(editingMaterial, patch(0)); });
+}
 $('mat-apply').addEventListener('click', () => {
   if (editingMaterial === 'default') model.applyDefaultMaterial(settings.color);
   else model.setSelectionMaterial(editingMaterial);
