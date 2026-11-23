@@ -30,7 +30,7 @@ Then open the address it prints. A plain static server such as VS Code's Live Se
 | Action | Input |
 | --- | --- |
 | Select / Orbit / Pan / Move / Rotate | `V` / `Q` / `N` / `W` / `K` |
-| Line / Rectangle / Circle / Push-Pull / Measure / Person | `L` / `R` / `C` / `P` / `M` / `U` |
+| Line / Rectangle / Circle / Push-Pull / Offset / Measure / Person | `L` / `R` / `C` / `P` / `I` / `M` / `U` |
 | Orbit | Drag (Orbit tool) or middle-drag |
 | Pan | Drag (Pan tool) or right-drag |
 | Zoom | Mouse wheel |
@@ -39,6 +39,7 @@ Then open the address it prints. A plain static server such as VS Code's Live Se
 | Line at 45° steps / square rectangle | Hold `Shift` while drawing |
 | Exact length / size / radius / distance | Type the value, then `Enter` |
 | Push / pull a face | Drag it, or click, move, click (`Esc` cancels) |
+| Offset a face's outline (inside or outside) | Offset tool: click the face, move, click (or type a distance); double-click repeats the last offset |
 | Copy while moving (the original stays) | Tap `Ctrl` (Move tool, before or during the move) |
 | Rotate | Click the centre, a start point, then the angle (15° steps, or type degrees); or drag a handle on the bounding box. `↑` / `→` / `←` lock to Y / X / Z, `Ctrl` copies |
 | Select a face or edge / with neighbours / everything connected | Click / double-click / triple-click (Select or Orbit tool) |

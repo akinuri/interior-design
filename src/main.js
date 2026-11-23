@@ -877,6 +877,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'r') tools.setTool('rect');
   else if (k === 'c') tools.setTool('circle');
   else if (k === 'p') tools.setTool('pushpull');
+  else if (k === 'i') tools.setTool('offset');
   else if (k === 'm') tools.setTool('measure');
   else if (k === 'w') tools.setTool('move');
   else if (k === 'k') tools.setTool('rotate');

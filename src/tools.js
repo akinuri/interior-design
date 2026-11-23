@@ -30,6 +30,9 @@ export const MAX_SIDES = 360;
  *              the face under the mouse; ↑ / → / ← lock it to Y / X / Z), a point for the start
  *              direction, then the angle (15° steps; corners exact; type degrees). Or grab a
  *              handle on the bounding box: it turns about the axis square to that side.
+ *  - offset:   on a face: a copy of its outline, inside (the face splits; holes grow) or outside
+ *              (a ring face around it), through the mouse; type a distance. A double-click
+ *              repeats the last offset on another face.
  *  - person:   place the person; drag while placing to set the facing direction.
  *
  * Drawing happens on the face under the cursor (any direction: floors, walls, tops),
@@ -78,6 +81,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   let rotHoverAxis = UP.clone(); // Rotate tool, before the first click: the protractor's axis (face under the mouse)
   let rotBox = null; // Rotate tool, before starting: { keys, handles: [{ p, axis, center, ref, k }], edges: Vector3[] }
   let rotHandle = null; // the bounding box handle under the mouse
+  let ofs = null; // Offset tool in progress: { fid, plane, loops (2D, ccw), curve, d (+ inside), result (3D loops), byPress, t0, x0, y0 }
+  let lastOffset = null; // the last offset made (a double-click repeats it)
   let hover = null; // push/pull: face id under the cursor
   let cursor = null; // snapped point: THREE.Vector3 with .kind
   let typed = ''; // typed value (measurements box)
@@ -210,7 +215,9 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   rotHandleHi.material.map = SHAPES.ring;
   rotHandleHi.material.color.set(BLUE);
   rotHandleHi.renderOrder = 13;
-  const helpers = [preview, fill, hiFill, hiLine, marker, guidePreview, gripCorners, gripMids, snapDot, crossDot, protractor, rotBoxLines, rotHandles, rotHandleHi];
+  const offsetLines = new THREE.LineSegments(new THREE.BufferGeometry(), previewMat); // Offset tool: the new outline(s)
+  offsetLines.renderOrder = 10;
+  const helpers = [preview, fill, hiFill, hiLine, marker, guidePreview, gripCorners, gripMids, snapDot, crossDot, protractor, rotBoxLines, rotHandles, rotHandleHi, offsetLines];
 
   // Selection box (Select tool): solid = fully inside (dragged left to right), dashed = touching.
   const boxEl = document.createElement('div');
@@ -525,6 +532,13 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       }
     } else if (tool === 'rotate') {
       updateRotateCursor(e);
+    } else if (tool === 'offset') {
+      if (ofs) updateOffset(e);
+      else {
+        setRay(e);
+        const hit = model.pickFace(raycaster);
+        hover = hit && hit.group == null && hit.mesh === model.mesh ? hit.face : null; // not a closed group's
+      }
     } else if (tool === 'pushpull') {
       if (op) updateOp(e);
       else {
@@ -689,6 +703,19 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
         preview.visible = true;
       }
       else if (hover != null && model.mesh.faces.has(hover)) highlightFace(hover);
+    }
+    if (tool === 'offset') {
+      const fid = ofs?.fid ?? hover;
+      if (fid != null && model.mesh.faces.has(fid)) highlightFace(fid);
+      if (ofs?.result) {
+        const lift = ofs.plane.n.clone().multiplyScalar(liftOf());
+        setPoints(offsetLines, ofs.result.flatMap((l) => l.flatMap((q, i) => [q.clone().add(lift), l[(i + 1) % l.length].clone().add(lift)])));
+        offsetLines.visible = true;
+      }
+      if (ofs && cursor) {
+        if (cursor.kind !== 'free') showSnapDot(cursor, cursor.kind);
+        setLabel(cursor.clone().addScaledVector(UP, 0.25), fmt(Math.abs(ofs.d)));
+      }
     }
     stateListeners.forEach((fn) => fn());
   }
@@ -970,6 +997,14 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   }
 
   function applyTyped() {
+    // Offset: a distance, on the side the mouse is now (negative: the other side).
+    if (tool === 'offset') {
+      const nums = parseTyped(false);
+      typed = '';
+      if (!ofs || !nums.length) return;
+      if (setOffset((ofs.d < 0 ? -1 : 1) * nums[0])) commitOffset();
+      return;
+    }
     // Rotate: an angle in degrees, the way it's turning now (negative: the other way).
     if (tool === 'rotate') {
       const v = parseFloat(typed.replace(',', '.'));
@@ -1021,7 +1056,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   // before the app's shortcuts see them.
   window.addEventListener('keydown', (e) => {
     if (isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
-    const busy = drawing() || !!op || !!mv || rot?.phase === 'turn';
+    const busy = drawing() || !!op || !!mv || rot?.phase === 'turn' || !!ofs;
     const consume = () => { e.preventDefault(); e.stopPropagation(); updatePreview(); };
     // Rotate tool: ↑ / → / ← lock the protractor to Y / X / Z (again: unlock). Not mid-turn.
     if (tool === 'rotate' && ['ArrowUp', 'ArrowRight', 'ArrowLeft'].includes(e.key)) {
@@ -1616,6 +1651,161 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     }
   }
 
+  // --- offset ---
+  /** A loop (2D points) without repeated or in-line points, turned counter-clockwise. */
+  function cleanLoop2D(pts) {
+    let out = pts.filter((p, i) => Math.hypot(p.x - pts[(i + 1) % pts.length].x, p.y - pts[(i + 1) % pts.length].y) > 1e-7);
+    out = out.filter((p, i) => {
+      const a = out[(i - 1 + out.length) % out.length], b = out[(i + 1) % out.length];
+      return Math.abs((p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x)) > 1e-10;
+    });
+    let area = 0;
+    out.forEach((p, i) => { const q = out[(i + 1) % out.length]; area += p.x * q.y - q.x * p.y; });
+    return area < 0 ? out.reverse() : out;
+  }
+
+  /** Do segments ab and cd cross (properly, not just touching at an end)? */
+  function segsCross(a, b, c, d) {
+    const o = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+    const d1 = o(c, d, a), d2 = o(c, d, b), d3 = o(a, b, c), d4 = o(a, b, d);
+    return ((d1 > 1e-12 && d2 < -1e-12) || (d1 < -1e-12 && d2 > 1e-12)) && ((d3 > 1e-12 && d4 < -1e-12) || (d3 < -1e-12 && d4 > 1e-12));
+  }
+
+  /**
+   * A counter-clockwise loop moved `d` inwards (negative: outwards), corners mitred. Null when
+   * that's too far: a side would turn around or the loop would cross itself.
+   */
+  function offsetLoop2D(pts, d) {
+    const n = pts.length;
+    const dirs = pts.map((p, i) => {
+      const q = pts[(i + 1) % n], len = Math.hypot(q.x - p.x, q.y - p.y);
+      return { ux: (q.x - p.x) / len, uy: (q.y - p.y) / len };
+    });
+    const out = pts.map((p, i) => {
+      const a = dirs[(i - 1 + n) % n], b = dirs[i];
+      // The two neighbouring sides, each moved along its inward (left) normal; where they meet.
+      const ax = p.x - a.uy * d, ay = p.y + a.ux * d, bx = p.x - b.uy * d, by = p.y + b.ux * d;
+      const cross = a.ux * b.uy - a.uy * b.ux;
+      if (Math.abs(cross) < 1e-9) return { x: bx, y: by };
+      const t = ((bx - ax) * b.uy - (by - ay) * b.ux) / cross;
+      return { x: ax + a.ux * t, y: ay + a.uy * t };
+    });
+    for (let i = 0; i < n; i++) {
+      const p = out[i], q = out[(i + 1) % n];
+      if ((q.x - p.x) * dirs[i].ux + (q.y - p.y) * dirs[i].uy <= 1e-9) return null; // a side turned around
+    }
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 2; j < n; j++) {
+        if (i === 0 && j === n - 1) continue;
+        if (segsCross(out[i], out[(i + 1) % n], out[j], out[(j + 1) % n])) return null;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The face's outline offset by d (inwards when positive: its holes grow too; outwards: the
+   * outer loop only), as 3D loops; null when it doesn't work out at that distance.
+   */
+  function offsetFace(o, d) {
+    if (Math.abs(d) < 1e-4) return null;
+    const loops = [];
+    const outer = offsetLoop2D(o.loops[0], d);
+    if (!outer) return null;
+    loops.push(outer);
+    if (d > 0) {
+      for (const h of o.loops.slice(1)) {
+        const g = offsetLoop2D(h, -d);
+        if (!g) return null;
+        loops.push(g);
+      }
+    }
+    // The new loops mustn't cross each other either.
+    for (let a = 0; a < loops.length; a++) {
+      for (let b = a + 1; b < loops.length; b++) {
+        const A = loops[a], B = loops[b];
+        for (let i = 0; i < A.length; i++) {
+          for (let j = 0; j < B.length; j++) {
+            if (segsCross(A[i], A[(i + 1) % A.length], B[j], B[(j + 1) % B.length])) return null;
+          }
+        }
+      }
+    }
+    return loops.map((l) => l.map((q) => o.plane.from2D(q.x, q.y)));
+  }
+
+  /** Signed distance from 2D point q to the outer loop: positive inside. */
+  function insideDistance(loop, q) {
+    let best = Infinity, inside = false;
+    for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
+      const a = loop[j], b = loop[i];
+      const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
+      const t = len2 ? THREE.MathUtils.clamp(((q.x - a.x) * dx + (q.y - a.y) * dy) / len2, 0, 1) : 0;
+      best = Math.min(best, Math.hypot(q.x - a.x - t * dx, q.y - a.y - t * dy));
+      if ((a.y > q.y) !== (b.y > q.y) && q.x < (dx * (q.y - a.y)) / dy + a.x) inside = !inside;
+    }
+    return inside ? best : -best;
+  }
+
+  function startOffset(e, fid) {
+    const m = model.mesh;
+    const f = m.faces.get(fid);
+    const plane = m.facePlane(fid);
+    const loops = f.loops.map((l) => cleanLoop2D(l.map((v) => plane.to2D(m.vertices.get(v)))));
+    if (loops[0].length < 3) return false;
+    // A circle's offset is a circle too (one curve, picked as a whole).
+    const curve = m.faceEdges(fid).every((id) => m.edges.get(id).curve);
+    ofs = { fid, plane, loops, curve, d: 0, result: null, byPress: true, t0: performance.now(), x0: e.clientX, y0: e.clientY };
+    updateOffset(e);
+    return true;
+  }
+
+  /** The offset through the mouse (a corner under it: through that), kept at the last one that works. */
+  function updateOffset(e) {
+    const pt = screenSnap(e);
+    const q = pt ? ofs.plane.project(pt) : rayToPlane(e, ofs.plane);
+    if (!q) return;
+    cursor = Object.assign(q, { kind: pt ? pt.kind : 'free' });
+    setOffset(insideDistance(ofs.loops[0], ofs.plane.to2D(q)));
+  }
+
+  function setOffset(d) {
+    const result = offsetFace(ofs, d);
+    if (result) { ofs.d = d; ofs.result = result; }
+    return !!result;
+  }
+
+  function commitOffset() {
+    const o = ofs;
+    ofs = null;
+    typed = '';
+    if (!o?.result) return;
+    lastOffset = o.d;
+    const m = model.mesh;
+    const f = m.faces.get(o.fid);
+    model.checkpoint();
+    const before = new Set(m.faces.keys());
+    for (const loop of o.result) m.addLoop(loop, o.plane, { color: f.color, normal: o.plane.n, curve: o.curve });
+    // Outwards, the ring around the face is a new face: give it the face's material too. (Faces
+    // split inside keep theirs.) It's the new face between the old outline and the new one.
+    if (f.material && o.d < 0) {
+      const ring = o.result[0].map((q) => o.plane.to2D(q));
+      for (const [id, g] of m.faces) {
+        if (before.has(id) || !o.plane.has(m.vertices.get(g.loops[0][0]))) continue;
+        const t = m.faceTriangles(id)[0];
+        if (!t) continue;
+        const c = o.plane.to2D(t.pts[0].clone().add(t.pts[1]).add(t.pts[2]).divideScalar(3));
+        if (insideDistance(ring, c) > 0 && insideDistance(o.loops[0], c) < 0) g.material = f.material;
+      }
+    }
+    model.sync();
+  }
+
+  function cancelOffset() {
+    ofs = null;
+    typed = '';
+  }
+
   // --- circle sides ---
   const sidesText = () => t('tool.sides', { n: settings.circleSides });
   function setSides(n) {
@@ -1752,6 +1942,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       if (startMove(e)) e.stopPropagation();
     } else if (tool === 'rotate') {
       if (rotatePress(e)) e.stopPropagation();
+    } else if (tool === 'offset' && !ofs && hover != null && model.mesh.faces.has(hover)) {
+      if (startOffset(e, hover)) e.stopPropagation();
     }
     updatePreview();
   }, true);
@@ -1762,7 +1954,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     if (press && (press.button === 1 || (press.button === 0 && (tool === 'orbit' || tool === 'pan')))
       && Math.hypot(e.clientX - press.x, e.clientY - press.y) > CLICK_TOLERANCE_PX) canvas.style.cursor = 'grabbing';
     if (boxStart && Math.hypot(e.clientX - boxStart.x, e.clientY - boxStart.y) > CLICK_TOLERANCE_PX) showBox(e);
-    if (!aiming && !op && !mv && !rot && !drawing() && e.target !== canvas) return;
+    if (!aiming && !op && !mv && !rot && !ofs && !drawing() && e.target !== canvas) return;
     updateCursor(e);
     if (aiming && cursor && Math.hypot(aiming.x - cursor.x, aiming.z - cursor.z) > 0.15) person.face(Math.atan2(cursor.z - aiming.z, cursor.x - aiming.x));
     updatePreview();
@@ -1786,6 +1978,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       if (op) cancelOp();
       else if (mv) cancelMove();
       else if (rot) cancelRotate();
+      else if (ofs) cancelOffset();
       else if (tool === 'line') finishLine();
       else resetDraw();
       updatePreview();
@@ -1808,6 +2001,14 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       if (rot.byPress && !moved) rot.byPress = false;
       else if (rot.phase === 'ref' && rot.byPress) setRef(e);
       else if (rot.phase === 'turn') commitRotate();
+    } else if (tool === 'offset' && ofs) {
+      if (ofs.byPress && !moved) ofs.byPress = false; // click, move, click (or drag)
+      else {
+        // A quick second click where the first was (a double-click): the last offset again.
+        const again = !moved && lastOffset != null && performance.now() - ofs.t0 < 450 && Math.hypot(e.clientX - ofs.x0, e.clientY - ofs.y0) <= CLICK_TOLERANCE_PX;
+        if (again && !setOffset(lastOffset)) cancelOffset();
+        else commitOffset();
+      }
     }
     anchorPress = false;
     updatePreview();
@@ -1849,14 +2050,15 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   });
 
   model.onChange(() => {
-    if (op || mv || rot) return;
+    if (op || mv || rot || ofs) return;
     if (hover != null && !model.mesh.faces.has(hover)) hover = null;
     updatePreview();
   });
 
   // --- public API ---
   function cancel() {
-    const busy = drawing() || !!op || !!mv || !!rot;
+    const busy = drawing() || !!op || !!mv || !!rot || !!ofs;
+    cancelOffset();
     cancelOp();
     cancelMove();
     cancelRotate();
@@ -1903,7 +2105,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     /** Returns true if something was in progress and got cancelled. */
     cancel,
     /** Something in progress (drawing / pushing)? */
-    get busy() { return drawing() || !!op || !!mv || !!rot; },
+    get busy() { return drawing() || !!op || !!mv || !!rot || !!ofs; },
     /** Can the current input be finished without another point (a line chain)? */
     get canFinish() { return tool === 'line' && chain.length >= 2; },
     onStateChange(fn) { stateListeners.add(fn); },
@@ -1921,7 +2123,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       updatePreview();
     },
     undo() {
-      if (op || mv || rot) return;
+      if (op || mv || rot || ofs) return;
       // While drawing a line, undo takes back the last edge.
       if (chain.length > 1) { model.undo(); chain.pop(); }
       else if (drawing()) resetDraw();
@@ -1929,7 +2131,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       updatePreview();
     },
     redo() {
-      if (op || mv || rot || drawing()) return;
+      if (op || mv || rot || ofs || drawing()) return;
       model.redo();
     },
   };

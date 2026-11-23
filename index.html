@@ -39,6 +39,7 @@
       <button data-tool="circle" class="icon" data-i18n-title="tool.circle.tip" data-i18n-aria="tool.circle"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg></button>
       <div class="sep" aria-hidden="true"></div>
       <button data-tool="pushpull" class="icon" data-i18n-title="tool.pushpull.tip" data-i18n-aria="tool.pushpull"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l9 4 9-4-9-4z"/><path d="M12 14V3m-3.5 3.5L12 3l3.5 3.5"/></svg></button>
+      <button data-tool="offset" class="icon" data-i18n-title="tool.offset.tip" data-i18n-aria="tool.offset"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="1"/><rect x="8" y="8" width="8" height="8" rx="0.5"/></svg></button>
       <div class="sep" aria-hidden="true"></div>
       <button data-tool="move" class="icon" data-i18n-title="tool.move.tip" data-i18n-aria="tool.move"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18"/><path d="m9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></svg></button>
       <button data-tool="rotate" class="icon" data-i18n-title="tool.rotate.tip" data-i18n-aria="tool.rotate"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.8 3.5v3.7h-3.7"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg></button>
@@ -245,6 +246,7 @@
           <li><span data-i18n="help.rectTool">Rectangle</span><span class="k"><kbd>R</kbd></span></li>
           <li><span data-i18n="help.circleTool">Circle</span><span class="k"><kbd>C</kbd></span></li>
           <li><span data-i18n="help.pushpullTool">Push / Pull</span><span class="k"><kbd>P</kbd></span></li>
+          <li><span data-i18n="help.offsetTool">Offset</span><span class="k"><kbd>I</kbd></span></li>
           <li><span data-i18n="help.moveTool">Move</span><span class="k"><kbd>W</kbd></span></li>
           <li><span data-i18n="help.rotateTool">Rotate</span><span class="k"><kbd>K</kbd></span></li>
           <li><span data-i18n="help.measureTool">Measure</span><span class="k"><kbd>M</kbd></span></li>
@@ -273,6 +275,7 @@
           <li><span data-i18n="help.grabFace">Move a face</span><span class="how" data-i18n="help.dragOrClick">drag it, or click, move, click</span></li>
           <li><span data-i18n="help.topFace">Face of a solid</span><span class="how" data-i18n="help.changesHeight">out adds, in carves</span></li>
           <li><span data-i18n="help.sideFace">Push to the far side</span><span class="how" data-i18n="help.movesSide">cuts a hole (door, window)</span></li>
+          <li><span data-i18n="help.offsetHow">Offset: a face, then how far in or out</span><span class="how" data-i18n-html="help.offsetKeys">click-click or drag · type a distance · double-click: the last offset again</span></li>
           <li><span data-i18n="help.moveHow">Move: a point, then where it goes</span><span class="how" data-i18n-html="help.moveKeys">click-click or drag · <span class="k"><kbd>↑</kbd></span> up / down · <span class="k"><kbd>Shift</kbd></span> or <span class="k"><kbd>→</kbd></span> <span class="k"><kbd>←</kbd></span> lock to X / Z · <span class="k"><kbd>Ctrl</kbd></span> copy</span></li>
           <li><span data-i18n="help.rotateHow">Rotate: centre, start, angle</span><span class="how" data-i18n-html="help.rotateKeys">or drag a handle on the box · <span class="k"><kbd>↑</kbd></span> <span class="k"><kbd>→</kbd></span> <span class="k"><kbd>←</kbd></span> lock to Y / X / Z · <span class="k"><kbd>Ctrl</kbd></span> copy · type degrees</span></li>
           <li><span data-i18n="help.cancelPull">Cancel</span><span class="how" data-i18n-html="help.escOrRight"><span class="k"><kbd>Esc</kbd></span> or right-click</span></li>
