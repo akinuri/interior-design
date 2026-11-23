@@ -708,18 +708,19 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
 
   // --- drawing actions ---
   /**
-   * Measure lock, Shift let go: has the mouse left the locked line? Far from it (on screen),
-   * or a little away once it's been kept a moment (so it isn't lost by a small slip).
+   * A Shift lock (Measure, Move), Shift let go: has the mouse left the locked line (through
+   * `origin` along `dir`)? Far from it (on screen), or a little away once it's been kept a
+   * moment (so it isn't lost by a small slip).
    */
-  function lockWavedAway(e) {
+  function lockWavedAway(e, origin = anchor, dir = measureLock.dir, releasedAt = measureLock.releasedAt) {
     const cam = getCamera();
     const r = canvas.getBoundingClientRect();
     const toScr = (q) => { const v = q.clone().project(cam); return { x: (v.x + 1) / 2 * r.width, y: (1 - v.y) / 2 * r.height }; };
-    const a = toScr(anchor), b = toScr(anchor.clone().addScaledVector(measureLock.dir, 1));
+    const a = toScr(origin), b = toScr(origin.clone().addScaledVector(dir, 1));
     const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy);
     if (len < 1e-6) return false; // looking straight along it
     const off = Math.abs((e.clientX - r.left - a.x) * dy - (e.clientY - r.top - a.y) * dx) / len;
-    const age = performance.now() - (measureLock.releasedAt ?? performance.now());
+    const age = performance.now() - (releasedAt ?? performance.now());
     return off > 220 || (off > 90 && age > 2000);
   }
 
@@ -1292,14 +1293,17 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       const pt = screenSnap(e, mv.exclude);
       if (pt) target = Object.assign(movePlane.project(pt), { kind: pt.kind, snapped: pt });
       else if (raw) target = snap(raw, movePlane, null, mv.exclude);
-      // Locked to an axis (→ / ←: X / Z; or Shift held: the one in the plane it was closest
-      // to when pressed): straight along it, to where the mouse / the snapped point lines up.
-      if (!shift) mv.shiftAxis = null;
+      // Locked to an axis (→ / ←: X / Z; or Shift: the one in the plane it was closest to when
+      // pressed): straight along it, to where the mouse / the snapped point lines up. The Shift
+      // lock stays after Shift is let go (to type a distance, to reach for a point), as with
+      // Measure: until the mouse is waved well away from the line, Shift is pressed again, or
+      // the move ends.
+      if (mv.shiftLock && !shift && !typed && lockWavedAway(e, mv.base, AXES[mv.shiftLock.axis], mv.shiftLock.releasedAt)) mv.shiftLock = null;
       let axis = moveAxis;
-      if (!axis && shift && target) {
+      if (!axis && (shift || mv.shiftLock) && target) {
         const d = target.clone().sub(mv.base);
-        mv.shiftAxis ??= ['x', 'y', 'z'].filter((k) => k !== normalAxis).reduce((b, k) => (Math.abs(d[k]) > Math.abs(d[b]) ? k : b));
-        axis = mv.shiftAxis;
+        mv.shiftLock ??= { axis: ['x', 'y', 'z'].filter((k) => k !== normalAxis).reduce((b, k) => (Math.abs(d[k]) > Math.abs(d[b]) ? k : b)) };
+        axis = mv.shiftLock.axis;
       }
       mv.axis = axis;
       if (axis) {
@@ -1819,6 +1823,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     if (e.key !== 'Shift' || e.repeat) return;
     // Measure: Shift again while a lock is kept: drop it (and lock what it's on now, if anything).
     if (measureLock?.releasedAt) measureLock = null;
+    if (mv?.shiftLock?.releasedAt) mv.shiftLock = null;
     shift = true;
     refreshFromLastPointer();
   });
@@ -1839,6 +1844,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     if (e.key !== 'Shift') return;
     shift = false;
     if (measureLock) measureLock.releasedAt = performance.now(); // kept: see lockWavedAway
+    if (mv?.shiftLock) mv.shiftLock.releasedAt = performance.now();
     refreshFromLastPointer();
   });
 
