@@ -13,7 +13,7 @@ import { createOrbitCenter } from './orbitCenter.js';
 import { createSideGrid } from './sideGrid.js';
 import { createProjectIO } from './io.js';
 import { installLogCapture, runDiagnostics, summarize } from './diagnostics.js';
-import { initTooltips, setTip } from './tooltips.js';
+import { initTooltips, setTip, showAllTips, allTipsShown } from './tooltips.js';
 import { t, getLang, setLang, LANGUAGES, onLangChange, applyTranslations } from './i18n.js';
 
 /** Typing into a text / number field or a dropdown (shortcuts stay out of the way)? Checkboxes, sliders and colour pickers don't count. */
@@ -217,6 +217,14 @@ function openHelp() {
   $('help').showModal();
 }
 $('help-btn').addEventListener('click', openHelp);
+// All tooltips at once (short names + shortcuts): a quick map of the controls.
+const setAllTips = (on) => $('tips-btn').classList.toggle('active', showAllTips(on));
+$('tips-btn').addEventListener('click', () => setAllTips(!allTipsShown()));
+// What's on screen can change (a card opened, the window resized): show the tips again for what's there now.
+// (After a moment: a card opens with an animation.)
+const refreshAllTips = () => { if (allTipsShown()) setTimeout(() => { if (allTipsShown()) setAllTips(true); }, 300); };
+window.addEventListener('resize', refreshAllTips);
+document.addEventListener('click', (e) => { if (!e.target.closest('#tips-btn')) refreshAllTips(); });
 $('help-close').addEventListener('click', () => $('help').close());
 // A click on the dimmed backdrop (outside the box) closes it.
 $('help').addEventListener('click', (e) => { if (e.target === $('help')) $('help').close(); });
@@ -881,6 +889,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 's') setSnapping(!settings.snapping);
   else if (k === 'enter') tools.finish();
   else if (k === 'escape') {
+    if (allTipsShown()) { setAllTips(false); return; }
     if (tools.cancel()) return;
     if (person.eye) person.exitEye();
     else if (model.selection.size) model.select([]);
