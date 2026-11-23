@@ -26,6 +26,10 @@ export const MAX_SIDES = 360;
  *              (or drag). Along the floor; ↑ toggles up / down; Shift (held) locks to X or Z,
  *              whichever it's closer to; → / ← lock to X / Z. Snaps to corners and measurement
  *              ends at any height; when locked, to where they line up with the axis.
+ *  - rotate:   turn the selection (or what's clicked): click the centre (the protractor lies on
+ *              the face under the mouse; ↑ / → / ← lock it to Y / X / Z), a point for the start
+ *              direction, then the angle (15° steps; corners exact; type degrees). Or grab a
+ *              handle on the bounding box: it turns about the axis square to that side.
  *  - person:   place the person; drag while placing to set the facing direction.
  *
  * Drawing happens on the face under the cursor (any direction: floors, walls, tops),
@@ -46,6 +50,9 @@ const AXES = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: 
 const AXIS_COLORS = { x: 0xe0453f, y: 0x36a84a, z: 0x3a6fe8 };
 
 const round6 = (v) => Math.round(v * 1e6) / 1e6;
+const ANGLE_STEP = Math.PI / 12; // Rotate tool: 15° steps (with snapping on)
+/** The main axis key ('x' / 'y' / 'z') a direction runs along, or null. */
+const axisKeyOf = (n) => ['x', 'y', 'z'].find((k) => Math.abs(n[k]) > 0.9999) ?? null;
 const fmt = formatLength; // labels in the working unit (cm)
 
 export function createTools({ getCamera, canvas, controls, scene, model, settings, person }) {
@@ -64,6 +71,13 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   let moveAxis = null; // Move tool: 'x' / 'z' locked with → / ← (until toggled off or the move ends)
   let moveCopy = false; // Move tool: a tap on Ctrl toggles copying (the original stays; until the move ends)
   let ctrlTap = false; // Ctrl is down and nothing else happened since (so its release is a tap)
+  // Rotate tool in progress: { phase: 'ref' (centre placed) | 'turn', center, axis, ref (unit, in the
+  // plane), refPt, targets, guides, exclude, angle, byPress, copy }
+  let rot = null;
+  let rotAxis = null; // Rotate tool: 'x' / 'y' / 'z' locked with the arrows (until toggled off or the turn ends)
+  let rotHoverAxis = UP.clone(); // Rotate tool, before the first click: the protractor's axis (face under the mouse)
+  let rotBox = null; // Rotate tool, before starting: { keys, handles: [{ p, axis, center, ref, k }], edges: Vector3[] }
+  let rotHandle = null; // the bounding box handle under the mouse
   let hover = null; // push/pull: face id under the cursor
   let cursor = null; // snapped point: THREE.Vector3 with .kind
   let typed = ''; // typed value (measurements box)
@@ -122,6 +136,13 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       tex.colorSpace = THREE.SRGBColorSpace;
       return tex;
     }
+    if (shape === 'ring') { // a rotate handle: a ring, white so it takes the axis colour
+      g.arc(32, 32, 17, 0, Math.PI * 2);
+      for (const [w, col] of [[16, '#1b1b1b'], [8, '#fff']]) { g.lineWidth = w; g.strokeStyle = col; g.stroke(); }
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
     if (shape === 'square') g.rect(14, 14, 36, 36);
     else if (shape === 'diamond') { g.moveTo(32, 8); g.lineTo(56, 32); g.lineTo(32, 56); g.lineTo(8, 32); g.closePath(); }
     else if (shape === 'cross') {
@@ -145,7 +166,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
   };
-  const SHAPES = { square: shapeTexture('square'), diamond: shapeTexture('diamond'), round: shapeTexture('round'), cross: shapeTexture('cross'), ex: shapeTexture('ex') };
+  const SHAPES = { square: shapeTexture('square'), diamond: shapeTexture('diamond'), round: shapeTexture('round'), cross: shapeTexture('cross'), ex: shapeTexture('ex'), ring: shapeTexture('ring') };
   const shapeOf = (kind) => (kind === 'vertex' ? 'square' : kind === 'mid' ? 'diamond' : kind === 'cross' ? 'ex' : 'round');
   const pointsObj = (size, opacity = 1) => {
     const o = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({
@@ -166,7 +187,30 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   crossDot.material.map = SHAPES.cross;
   crossDot.renderOrder = 13;
   let grips = null; // { corners: Vector3[], mids: Vector3[] }: Move tool, before grabbing
-  const helpers = [preview, fill, hiFill, hiLine, marker, guidePreview, gripCorners, gripMids, snapDot, crossDot];
+  // Rotate tool: the protractor (a unit circle with a tick every 15°, around +Z; placed, turned and
+  // scaled to a fixed size on screen), the bounding box and its handles (in the axis colours).
+  const protractor = (() => {
+    const pos = [];
+    const at = (a, r) => [Math.cos(a) * r, Math.sin(a) * r, 0];
+    for (let i = 0; i < 72; i++) pos.push(...at((i / 72) * Math.PI * 2, 1), ...at(((i + 1) / 72) * Math.PI * 2, 1));
+    for (let i = 0; i < 24; i++) pos.push(...at(i * ANGLE_STEP, i % 6 ? 0.86 : 0.7), ...at(i * ANGLE_STEP, 1));
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    const o = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: BLUE, depthTest: false, transparent: true, opacity: 0.9 }));
+    o.renderOrder = 11;
+    o.frustumCulled = false;
+    return o;
+  })();
+  const rotBoxLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: BLUE, depthTest: false, transparent: true, opacity: 0.45 }));
+  rotBoxLines.renderOrder = 10;
+  const rotHandles = pointsObj(13, 0.95);
+  rotHandles.material.map = SHAPES.ring;
+  rotHandles.material.color.set(BLUE);
+  const rotHandleHi = pointsObj(19);
+  rotHandleHi.material.map = SHAPES.ring;
+  rotHandleHi.material.color.set(BLUE);
+  rotHandleHi.renderOrder = 13;
+  const helpers = [preview, fill, hiFill, hiLine, marker, guidePreview, gripCorners, gripMids, snapDot, crossDot, protractor, rotBoxLines, rotHandles, rotHandleHi];
 
   // Selection box (Select tool): solid = fully inside (dragged left to right), dashed = touching.
   const boxEl = document.createElement('div');
@@ -479,6 +523,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
           if (raw) cursor = snap(raw, hoverPlane, null);
         }
       }
+    } else if (tool === 'rotate') {
+      updateRotateCursor(e);
     } else if (tool === 'pushpull') {
       if (op) updateOp(e);
       else {
@@ -530,7 +576,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     const up = (q) => q.clone().add(lift);
     const labelAt = (q) => q.clone().add(lift).addScaledVector(UP, 0.25);
 
-    if (cursor && (isDrawTool() || tool === 'person' || tool === 'move')) {
+    if (cursor && (isDrawTool() || tool === 'person' || tool === 'move' || (tool === 'rotate' && !rotHandle))) {
       const n = tool === 'person' ? UP : p.n;
       marker.position.copy(cursor).addScaledVector(n, 0.01);
       marker.quaternion.setFromUnitVectors(UP, n);
@@ -552,7 +598,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       gripMids.visible = grips.mids.length > 0;
     }
     if (tool === 'move' && mv && cursor?.snapped) showSnapDot(cursor.snapped, cursor.snapped.kind);
-    if (tool === 'move' && !mv && moveCopy && cursor) { label.pos = cursor.clone().addScaledVector(UP, 0.25); label.text = t('tool.copyMode'); }
+    if (tool === 'rotate') previewRotate();
+    if ((tool === 'move' || tool === 'rotate') && !mv && !rot && moveCopy && cursor) { label.pos = cursor.clone().addScaledVector(UP, 0.25); label.text = t('tool.copyMode'); }
 
     if (tool === 'line' && chain.length && cursor) {
       const a = chain.at(-1);
@@ -922,6 +969,15 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   }
 
   function applyTyped() {
+    // Rotate: an angle in degrees, the way it's turning now (negative: the other way).
+    if (tool === 'rotate') {
+      const v = parseFloat(typed.replace(',', '.'));
+      typed = '';
+      if (rot?.phase !== 'turn' || !Number.isFinite(v)) return;
+      applyRotate((rot.angle < 0 ? -1 : 1) * THREE.MathUtils.degToRad(v));
+      commitRotate();
+      return;
+    }
     // Circle: "12s" sets the side count and keeps drawing.
     const sides = tool === 'circle' && typed.trim().match(/^(\d+)\s*s$/i);
     if (sides) { typed = ''; setSides(parseInt(sides[1], 10)); return; }
@@ -964,8 +1020,19 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   // before the app's shortcuts see them.
   window.addEventListener('keydown', (e) => {
     if (isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
-    const busy = drawing() || !!op || !!mv;
+    const busy = drawing() || !!op || !!mv || rot?.phase === 'turn';
     const consume = () => { e.preventDefault(); e.stopPropagation(); updatePreview(); };
+    // Rotate tool: ↑ / → / ← lock the protractor to Y / X / Z (again: unlock). Not mid-turn.
+    if (tool === 'rotate' && ['ArrowUp', 'ArrowRight', 'ArrowLeft'].includes(e.key)) {
+      if (rot?.phase !== 'turn') {
+        const a = { ArrowUp: 'y', ArrowRight: 'x', ArrowLeft: 'z' }[e.key];
+        rotAxis = rotAxis === a ? null : a;
+        if (rot) rot.axis = rotAxis ? AXES[rotAxis].clone() : rot.hoverAxis.clone();
+        if (lastPointer) updateCursor(lastPointer);
+      }
+      consume();
+      return;
+    }
     // Move tool: ↑ switches between moving along the floor and up / down.
     if (tool === 'move' && e.key === 'ArrowUp') {
       moveVertical = !moveVertical;
@@ -1022,6 +1089,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     for (const id of model.selectedEdges) { const e = m.edges.get(id); if (e) { add(m.vertices.get(e.a)); add(m.vertices.get(e.b)); } }
     for (const g of model.selectedGroups) for (const v of model.groups.get(g).mesh.vertices.values()) add(v);
     for (const id of model.selectedMeasurements) { const it = model.measurements.find((x) => x.id === id); if (it) { add(it.a); add(it.b); } }
+    out.guides = [];
     if (!attached) return out;
 
     // Guides and measurements attached to what moves come along: a guide whose source edge
@@ -1059,7 +1127,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
         const pt = plane.to2D(q);
         return inPoly(pt, loops[0]) && !loops.slice(1).some((h) => inPoly(pt, h));
       });
-    for (const g of model.guides) if (g.from && onMoving(g.from)) { add(g.p); add(g.from); }
+    out.guides = []; // (their direction turns with a rotation)
+    for (const g of model.guides) if (g.from && onMoving(g.from)) { add(g.p); add(g.from); out.guides.push({ g, d: g.d.clone() }); }
     for (const it of model.measurements) { if (onMoving(it.a)) add(it.a); if (onMoving(it.b)) add(it.b); }
     return out;
   }
@@ -1128,7 +1197,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       const hit = ray.intersectObjects(model.pickables, false)[0];
       return !hit || hit.distance >= ray.ray.origin.distanceTo(q) - 0.01;
     };
-    return { keys, corners: [...corners].filter((q) => q && seen(q)), mids: mids.filter(seen) };
+    return { keys, all: [...corners].filter(Boolean), corners: [...corners].filter((q) => q && seen(q)), mids: mids.filter(seen) };
   }
 
   function selectUnder(e) {
@@ -1168,21 +1237,25 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
    */
   function setMoveCopy(on) {
     moveCopy = on;
-    if (!mv || !!mv.copy === on) return;
-    const delta = mv.delta.clone();
-    for (const t of mv.targets) t.p.copy(t.orig);
+    const cur = mv ?? (rot?.phase === 'turn' ? rot : null); // a move or a turn
+    if (!cur || !!cur.copy === on) return;
+    const keep = cur === mv ? mv.delta.clone() : rot.angle;
+    for (const t of cur.targets) t.p.copy(t.orig);
+    for (const { g, d } of cur.guides ?? []) g.d.copy(d);
     if (on) {
-      mv.originals = { keys: [...model.selection], targets: mv.targets };
-      mv.copy = model.duplicateSelection();
-      mv.targets = moveTargets(false);
+      cur.originals = { keys: [...model.selection], targets: cur.targets, guides: cur.guides };
+      cur.copy = model.duplicateSelection();
+      cur.targets = moveTargets(false);
+      cur.guides = [];
     } else {
-      model.removeKeys(mv.copy);
-      model.selection = new Set(mv.originals.keys);
-      mv.targets = mv.originals.targets;
-      mv.copy = null;
+      model.removeKeys(cur.copy);
+      model.selection = new Set(cur.originals.keys);
+      cur.targets = cur.originals.targets;
+      cur.guides = cur.originals.guides;
+      cur.copy = null;
     }
-    mv.exclude = new Set(mv.targets.map((t) => t.p)); // the original can be snapped to while copying
-    applyMove(delta);
+    cur.exclude = new Set(cur.targets.map((t) => t.p)); // the original can be snapped to while copying
+    if (cur === mv) applyMove(keep); else applyRotate(keep);
   }
 
   function applyMove(delta) {
@@ -1271,6 +1344,273 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   }
   const commitMove = () => endMove(true);
   const cancelMove = () => endMove(false);
+
+  // --- rotate ---
+  /** World size of one screen pixel at point q (for things drawn a fixed size on screen). */
+  function worldPerPx(q) {
+    const cam = getCamera(), h = canvas.clientHeight || 1;
+    if (cam.isOrthographicCamera) return (cam.top - cam.bottom) / cam.zoom / h;
+    const depth = q.clone().sub(cam.position).dot(cam.getWorldDirection(new THREE.Vector3()));
+    return (2 * Math.max(depth, 0.01) * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2))) / h;
+  }
+
+  /**
+   * The bounding box of what would turn (the selection, else what's under the mouse) with its
+   * handles: on each side (`face`: 'x+', 'y-'...) one in the middle and four out from it, each
+   * turning about the axis square to that side, through its middle. Only the side under the
+   * mouse shows them. Null when there's nothing.
+   */
+  function rotBoxOf(e) {
+    const g = gripsOf(e);
+    if (!g.keys.length || !g.all.length) return null;
+    const box = new THREE.Box3().setFromPoints(g.all);
+    const size = box.getSize(new THREE.Vector3()), mid = box.getCenter(new THREE.Vector3());
+    if (Math.max(size.x, size.y, size.z) < 1e-6) return null;
+    const handles = [];
+    for (const k of ['x', 'y', 'z']) {
+      for (const sign of size[k] < 1e-6 ? [1] : [1, -1]) { // flat that way: one side
+        const center = mid.clone();
+        center[k] = sign > 0 ? box.max[k] : box.min[k];
+        const face = k + (sign > 0 ? '+' : '-');
+        // The middle one: turns about the same axis, the start direction picked after grabbing it.
+        handles.push({ p: center.clone(), axis: AXES[k].clone(), center, ref: null, k, face });
+        for (const o of ['x', 'y', 'z']) {
+          if (o === k || size[o] < 1e-6) continue;
+          for (const s of [1, -1]) {
+            const p = center.clone();
+            p[o] += s * size[o] * 0.35; // well out from the middle one, short of the edge
+            handles.push({ p, axis: AXES[k].clone(), center, ref: AXES[o].clone().multiplyScalar(s), k, face });
+          }
+        }
+      }
+    }
+    const c = (i) => new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z);
+    const edges = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]].flatMap(([a, b]) => [c(a), c(b)]);
+    return { keys: g.keys, box, handles, edges, shown: [] };
+  }
+
+  /** The side of the box the mouse is over ('x+', 'y-'...), or null. */
+  function boxFaceUnder(e, box) {
+    setRay(e);
+    const q = raycaster.ray.intersectBox(box, new THREE.Vector3());
+    if (!q || box.containsPoint(raycaster.ray.origin)) return null;
+    let best = null, bestD = Infinity;
+    for (const k of ['x', 'y', 'z']) {
+      for (const [sign, v] of [['+', box.max[k]], ['-', box.min[k]]]) {
+        const d = Math.abs(q[k] - v);
+        if (d < bestD) { bestD = d; best = k + sign; }
+      }
+    }
+    // (A flat box has only its '+' side.)
+    return best && box.max[best[0]] - box.min[best[0]] < 1e-6 ? `${best[0]}+` : best;
+  }
+
+  /** The protractor's axis for a surface: its normal (exactly an axis when it's one). */
+  function surfaceAxis(n) {
+    const k = axisKeyOf(n);
+    return k ? AXES[k].clone() : n.clone().normalize();
+  }
+
+  /** On the turn plane p: a corner anywhere (projected), else where the mouse meets it; with `kind`. */
+  function pointOnTurnPlane(e, p, exclude = null) {
+    const pt = screenSnap(e, exclude);
+    if (pt) return Object.assign(p.project(pt), { kind: pt.kind, snapped: pt });
+    const raw = rayToPlane(e, p);
+    return raw ? Object.assign(raw, { kind: 'free' }) : null;
+  }
+
+  function updateRotateCursor(e) {
+    if (rot?.phase === 'turn') { updateRotate(e); return; }
+    if (rot?.phase === 'ref') {
+      // The start direction: a corner / midpoint / edge on the plane, else every 15°.
+      const p = makePlane(rot.axis, rot.center);
+      let q = pointOnTurnPlane(e, p);
+      if (q && q.kind === 'free') {
+        const raw = q;
+        q = snap(raw, p, null);
+        if (q.kind === 'grid' || q.kind === 'free') {
+          const d = raw.clone().sub(rot.center);
+          const len = d.length();
+          if (settings.snapping && len > 1e-6) {
+            const a = Math.round(Math.atan2(d.dot(p.v), d.dot(p.u)) / ANGLE_STEP) * ANGLE_STEP;
+            q = Object.assign(rot.center.clone().addScaledVector(p.u, Math.cos(a) * len).addScaledVector(p.v, Math.sin(a) * len), { kind: 'free' });
+          } else q = raw;
+        }
+      }
+      cursor = q;
+      return;
+    }
+    // Before starting: the box handles of what would turn (kept while reaching for one just off
+    // the object), and the protractor on the surface under the mouse.
+    const nearShown = () => rotBox?.shown.length && nearestOnScreen(e, rotBox.shown.map((h) => [h.p]), 24);
+    const next = rotBoxOf(e);
+    if (next || !nearShown()) {
+      // The side under the mouse shows its handles; just off it (reaching for one): still that side.
+      const face = next && boxFaceUnder(e, next.box);
+      const was = rotBox?.shown[0]?.face;
+      const side = face ?? (was && nearShown() ? was : null);
+      rotBox = next;
+      if (rotBox) rotBox.shown = rotBox.handles.filter((h) => h.face === side);
+    }
+    rotHandle = rotBox ? nearestOnScreen(e, rotBox.shown.map((h) => [h.p, h]), 12)?.[1] ?? null : null;
+    hoverPlane = planeUnder(e);
+    rotHoverAxis = rotAxis ? AXES[rotAxis].clone() : surfaceAxis(hoverPlane.n);
+    const pt = screenSnap(e);
+    if (pt) cursor = pt;
+    else {
+      const raw = rayToPlane(e, hoverPlane);
+      cursor = raw ? snap(raw, hoverPlane, null) : null;
+    }
+  }
+
+  /** Start turning what's selected (else `keys`: what the box belongs to). */
+  function startTurn(keys) {
+    if (!model.selection.size && keys?.length) model.select(keys);
+    if (!model.selection.size) return false;
+    const targets = moveTargets();
+    if (!targets.length) return false;
+    model.checkpoint();
+    Object.assign(rot, { phase: 'turn', targets, guides: targets.guides, exclude: new Set(targets.map((t) => t.p)), angle: 0, copy: null });
+    if (moveCopy) setMoveCopy(true);
+    return true;
+  }
+
+  /** Rotate tool press; returns true when it took the press. */
+  function rotatePress(e) {
+    if (!rot) {
+      if (rotHandle) {
+        // A box handle: turn about its axis, starting from the handle.
+        // The middle handle: the protractor placed there, axis fixed; then the start direction
+        // (a click, or where a drag from it ends) and the angle, as usual.
+        const h = rotHandle;
+        rot = { phase: 'ref', center: h.center.clone(), axis: h.axis.clone(), hoverAxis: h.axis.clone(), byPress: true };
+        if (!h.ref) {
+          if (!model.selection.size) model.select(rotBox.keys);
+          if (!model.selection.size) { rot = null; return false; }
+          return true;
+        }
+        Object.assign(rot, { ref: h.ref.clone(), refPt: h.p.clone() });
+        if (!startTurn(rotBox.keys)) { rot = null; return false; }
+        return true;
+      }
+      if (!cursor) return false;
+      // The centre. What turns is settled now (as with Move): a click on empty space does nothing.
+      if (!model.selection.size) {
+        if (rotBox?.keys.length) model.select(rotBox.keys);
+        else selectUnder(e);
+      }
+      if (!model.selection.size) return false;
+      rot = { phase: 'ref', center: cursor.clone(), axis: rotHoverAxis.clone(), hoverAxis: rotHoverAxis.clone(), byPress: true };
+      return true;
+    }
+    if (rot.phase === 'ref') { setRef(); return true; }
+    return false;
+  }
+
+  /** The start direction, from the cursor (2nd click, or the end of a drag from the centre). */
+  function setRef() {
+    if (!cursor) return;
+    const p = makePlane(rot.axis, rot.center);
+    const d = p.project(cursor).sub(rot.center);
+    if (d.length() < 1e-4) return;
+    rot.ref = d.normalize();
+    rot.refPt = cursor.clone();
+    rot.byPress = true;
+    if (!startTurn()) cancelRotate();
+  }
+
+  function applyRotate(angle) {
+    rot.angle = angle;
+    const q = new THREE.Quaternion().setFromAxisAngle(rot.axis, angle);
+    for (const t of rot.targets) t.p.copy(t.orig).sub(rot.center).applyQuaternion(q).add(rot.center);
+    for (const { g, d } of rot.guides) g.d.copy(d).applyQuaternion(q);
+    model.sync(false);
+  }
+
+  /** The angle from the start direction to the mouse (to a corner: exactly; else in 15° steps). */
+  function updateRotate(e) {
+    const p = makePlane(rot.axis, rot.center);
+    const q = pointOnTurnPlane(e, p, rot.exclude);
+    if (!q) return;
+    const d = q.clone().sub(rot.center);
+    if (d.lengthSq() < 1e-10) return;
+    let a = Math.atan2(new THREE.Vector3().crossVectors(rot.ref, d).dot(rot.axis), rot.ref.dot(d));
+    if (q.kind === 'free' && settings.snapping) a = Math.round(a / ANGLE_STEP) * ANGLE_STEP;
+    cursor = q;
+    applyRotate(a);
+  }
+
+  function endRotate(keep) {
+    if (!rot) return;
+    if (rot.phase === 'turn') {
+      if (keep && Math.abs(rot.angle) > 1e-9) model.sync(true);
+      else {
+        for (const t of rot.targets) t.p.copy(t.orig);
+        for (const { g, d } of rot.guides) g.d.copy(d);
+        if (rot.copy) { model.removeKeys(rot.copy); model.selection = new Set(rot.originals.keys); }
+        model.dropCheckpoint();
+        model.sync(false);
+      }
+    }
+    rot = null;
+    rotAxis = null;
+    moveCopy = false;
+    typed = '';
+  }
+  const commitRotate = () => endRotate(true);
+  const cancelRotate = () => endRotate(false);
+
+  /** Place the protractor at q, around `axis`, its 0° tick along `zero` (if given). */
+  function showProtractor(q, axis, zero = null) {
+    protractor.position.copy(q);
+    protractor.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
+    if (zero) {
+      const x = new THREE.Vector3(1, 0, 0).applyQuaternion(protractor.quaternion);
+      const a = Math.atan2(new THREE.Vector3().crossVectors(x, zero).dot(axis), x.dot(zero));
+      protractor.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(axis, a));
+    }
+    protractor.scale.setScalar(55 * worldPerPx(q));
+    const k = axisKeyOf(axis);
+    protractor.material.color.set(k ? AXIS_COLORS[k] : BLUE);
+    protractor.visible = true;
+  }
+
+  function previewRotate() {
+    if (!rot && rotBox) {
+      setPoints(rotBoxLines, rotBox.edges);
+      rotBoxLines.visible = true;
+      rotHandles.geometry.dispose();
+      rotHandles.geometry = new THREE.BufferGeometry().setFromPoints(rotBox.shown.map((h) => h.p));
+      rotHandles.visible = rotBox.shown.length > 0;
+      if (rotHandle) {
+        setPoints(rotHandleHi, [rotHandle.p]);
+        rotHandleHi.visible = true;
+        showProtractor(rotHandle.center, rotHandle.axis, rotHandle.ref);
+      }
+    }
+    if (!rot) {
+      if (!rotHandle && cursor) showProtractor(cursor, rotHoverAxis);
+      return;
+    }
+    showProtractor(rot.center, rot.axis, rot.phase === 'turn' ? rot.ref : null);
+    if (rot.phase === 'ref' && cursor) {
+      setPoints(preview, [rot.center, cursor]);
+      preview.visible = true;
+    }
+    if (rot.phase === 'turn') {
+      // The start direction and the current one, from the centre (at least the protractor's size).
+      const r = 55 * worldPerPx(rot.center);
+      const now = rot.ref.clone().applyAxisAngle(rot.axis, rot.angle);
+      const refEnd = rot.center.clone().addScaledVector(rot.ref, Math.max(r, rot.refPt.distanceTo(rot.center)));
+      const nowEnd = rot.center.clone().addScaledVector(now, Math.max(r, cursor ? cursor.distanceTo(rot.center) : 0));
+      setPoints(preview, [refEnd, rot.center, nowEnd]);
+      preview.visible = true;
+      if (cursor?.snapped) showSnapDot(cursor.snapped, cursor.snapped.kind);
+      const deg = THREE.MathUtils.radToDeg(rot.angle);
+      label.pos = nowEnd.clone().addScaledVector(UP, 0.15);
+      label.text = typed ? `${typed}°▏` : `${rot.copy ? '+ ' : ''}${Math.abs(deg - Math.round(deg)) < 0.05 ? Math.round(deg) : deg.toFixed(1)}°`;
+    }
+  }
 
   // --- circle sides ---
   const sidesText = () => t('tool.sides', { n: settings.circleSides });
@@ -1406,6 +1746,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       if (hit && hit.group == null && model.mesh.canPushPull(hit.face)) { startOp(e, hit); e.stopPropagation(); }
     } else if (tool === 'move' && !mv) {
       if (startMove(e)) e.stopPropagation();
+    } else if (tool === 'rotate') {
+      if (rotatePress(e)) e.stopPropagation();
     }
     updatePreview();
   }, true);
@@ -1416,7 +1758,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     if (press && (press.button === 1 || (press.button === 0 && (tool === 'orbit' || tool === 'pan')))
       && Math.hypot(e.clientX - press.x, e.clientY - press.y) > CLICK_TOLERANCE_PX) canvas.style.cursor = 'grabbing';
     if (boxStart && Math.hypot(e.clientX - boxStart.x, e.clientY - boxStart.y) > CLICK_TOLERANCE_PX) showBox(e);
-    if (!aiming && !op && !mv && !drawing() && e.target !== canvas) return;
+    if (!aiming && !op && !mv && !rot && !drawing() && e.target !== canvas) return;
     updateCursor(e);
     if (aiming && cursor && Math.hypot(aiming.x - cursor.x, aiming.z - cursor.z) > 0.15) person.face(Math.atan2(cursor.z - aiming.z, cursor.x - aiming.x));
     updatePreview();
@@ -1439,6 +1781,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       // Right-click: stop a line chain; cancel anything else in progress.
       if (op) cancelOp();
       else if (mv) cancelMove();
+      else if (rot) cancelRotate();
       else if (tool === 'line') finishLine();
       else resetDraw();
       updatePreview();
@@ -1456,6 +1799,11 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     } else if (tool === 'move' && mv) {
       if (mv.byPress && !moved) mv.byPress = false; // click, move, click (or drag)
       else commitMove();
+    } else if (tool === 'rotate' && rot) {
+      // Centre: a drag from it sets the start direction where it ends. Turning: click-click or drag.
+      if (rot.byPress && !moved) rot.byPress = false;
+      else if (rot.phase === 'ref' && rot.byPress) setRef(e);
+      else if (rot.phase === 'turn') commitRotate();
     }
     anchorPress = false;
     updatePreview();
@@ -1483,7 +1831,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     if (e.key !== 'Control') return;
     const tap = ctrlTap;
     ctrlTap = false;
-    if (!tap || tool !== 'move' || isTyping(e)) return;
+    if (!tap || (tool !== 'move' && tool !== 'rotate') || isTyping(e)) return;
     setMoveCopy(!moveCopy);
     updatePreview();
   });
@@ -1495,16 +1843,17 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   });
 
   model.onChange(() => {
-    if (op || mv) return;
+    if (op || mv || rot) return;
     if (hover != null && !model.mesh.faces.has(hover)) hover = null;
     updatePreview();
   });
 
   // --- public API ---
   function cancel() {
-    const busy = drawing() || !!op || !!mv;
+    const busy = drawing() || !!op || !!mv || !!rot;
     cancelOp();
     cancelMove();
+    cancelRotate();
     resetDraw();
     updatePreview();
     return busy;
@@ -1518,7 +1867,9 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     moveCopy = false;
     tool = t;
     hover = null;
-    if (!['select', 'orbit', 'pan', 'move'].includes(t) && model.selection.size) model.select([]); // Move works on the selection
+    rotBox = rotHandle = null;
+    rotAxis = null;
+    if (!['select', 'orbit', 'pan', 'move', 'rotate'].includes(t) && model.selection.size) model.select([]); // Move / Rotate work on the selection
     controls.mouseButtons.LEFT = t === 'orbit' ? THREE.MOUSE.ROTATE : t === 'pan' ? THREE.MOUSE.PAN : null; // Select drags a box instead
     canvas.style.cursor = toolCursor();
     toolListeners.forEach((fn) => fn(t));
@@ -1546,7 +1897,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     /** Returns true if something was in progress and got cancelled. */
     cancel,
     /** Something in progress (drawing / pushing)? */
-    get busy() { return drawing() || !!op || !!mv; },
+    get busy() { return drawing() || !!op || !!mv || !!rot; },
     /** Can the current input be finished without another point (a line chain)? */
     get canFinish() { return tool === 'line' && chain.length >= 2; },
     onStateChange(fn) { stateListeners.add(fn); },
@@ -1564,7 +1915,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       updatePreview();
     },
     undo() {
-      if (op || mv) return;
+      if (op || mv || rot) return;
       // While drawing a line, undo takes back the last edge.
       if (chain.length > 1) { model.undo(); chain.pop(); }
       else if (drawing()) resetDraw();
@@ -1572,7 +1923,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       updatePreview();
     },
     redo() {
-      if (op || mv || drawing()) return;
+      if (op || mv || rot || drawing()) return;
       model.redo();
     },
   };

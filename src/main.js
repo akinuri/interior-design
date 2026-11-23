@@ -871,6 +871,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'p') tools.setTool('pushpull');
   else if (k === 'm') tools.setTool('measure');
   else if (k === 'w') tools.setTool('move');
+  else if (k === 'k') tools.setTool('rotate');
   else if (k === 'u') tools.setTool('person');
   else if (k === 'e') { if (!person.eye) setParallel(false); person.toggleEye(); }
   else if (k === 't') setStdView('top');

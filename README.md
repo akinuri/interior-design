@@ -29,7 +29,7 @@ Then open the address it prints. A plain static server such as VS Code's Live Se
 
 | Action | Input |
 | --- | --- |
-| Select / Orbit / Pan / Move | `V` / `Q` / `N` / `W` |
+| Select / Orbit / Pan / Move / Rotate | `V` / `Q` / `N` / `W` / `K` |
 | Line / Rectangle / Circle / Push-Pull / Measure / Person | `L` / `R` / `C` / `P` / `M` / `U` |
 | Orbit | Drag (Orbit tool) or middle-drag |
 | Pan | Drag (Pan tool) or right-drag |
@@ -40,6 +40,7 @@ Then open the address it prints. A plain static server such as VS Code's Live Se
 | Exact length / size / radius / distance | Type the value, then `Enter` |
 | Push / pull a face | Drag it, or click, move, click (`Esc` cancels) |
 | Copy while moving (the original stays) | Tap `Ctrl` (Move tool, before or during the move) |
+| Rotate | Click the centre, a start point, then the angle (15° steps, or type degrees); or drag a handle on the bounding box. `↑` / `→` / `←` lock to Y / X / Z, `Ctrl` copies |
 | Select a face or edge / with neighbours / everything connected | Click / double-click / triple-click (Select or Orbit tool) |
 | Select with a box: fully inside / touching | Drag left to right / right to left (Select tool) |
 | Add to / toggle in the selection, select all | `Ctrl`+click / `Shift`+click, `Ctrl+A` |
