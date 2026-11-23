@@ -415,7 +415,8 @@ button.icon.lang {
   accent-color: var(--accent);
 }
 
-.panel .card-body > input[type="range"] {
+.panel .card-body > input[type="range"],
+.panel .mat-edit > input[type="range"] {
   width: 100%;
   margin: -4px 0 0;
 }

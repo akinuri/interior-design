@@ -4,7 +4,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { Mesh, shapesToMesh } from './mesh.js';
 import { createMeasureView, createGuideView } from './measurements.js';
-import { textureOf } from './materials.js';
+import { textureOf, isGlass, GLASS_OPACITY } from './materials.js';
 import { booleanOp, isSolid } from './boolean.js';
 
 /*
@@ -225,8 +225,8 @@ patchFaceMaterial(groundFaceMat);
 
 /** A face material with a texture (one per scene material and ground / not), shaped like the plain ones. */
 const texturedMats = new Map(); // "materialId|ground" → THREE material
-function texturedMaterial(id, ground, texture) {
-  const key = `${id}|${ground ? 'g' : 'n'}`;
+function texturedMaterial(mat, ground, texture) {
+  const key = `${mat.id}|${ground ? 'g' : 'n'}`;
   let m = texturedMats.get(key);
   if (!m) {
     m = new THREE.MeshStandardMaterial({
@@ -236,8 +236,12 @@ function texturedMaterial(id, ground, texture) {
     patchFaceMaterial(m);
     faceMaterials.add(m);
     texturedMats.set(key, m);
-    applyFaceStyleTo(m);
   }
+  // Glass: glossy and see-through (its opacity can be set); the face style keeps it so.
+  const glass = isGlass(mat);
+  m.roughness = glass ? 0.05 : 0.9;
+  m.userData.glassOpacity = glass ? mat.opacity ?? GLASS_OPACITY : null;
+  applyFaceStyleTo(m);
   if (m.map !== texture) { m.map = texture; m.needsUpdate = true; }
   return m;
 }
@@ -251,8 +255,10 @@ export function setFaceStyle(style) {
 
 function applyFaceStyleTo(m) {
   const xray = faceStyle === 'xray';
-  if (m.transparent !== xray) { m.transparent = xray; m.depthWrite = !xray; m.needsUpdate = true; }
-  m.opacity = xray ? 0.45 : 1;
+  const glass = m.userData.glassOpacity != null;
+  const see = xray || glass;
+  if (m.transparent !== see) { m.transparent = see; m.depthWrite = !see; m.needsUpdate = true; }
+  m.opacity = glass ? m.userData.glassOpacity * (xray ? 0.8 : 1) : xray ? 0.45 : 1;
   m.visible = faceStyle !== 'wire';
 }
 
@@ -289,6 +295,8 @@ function cleanMaterial(m) {
     name: typeof m.name === 'string' && m.name.trim() ? m.name.trim().slice(0, 60) : 'Material',
     color: typeof m.color === 'string' && /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : '#ffffff',
     ...(typeof m.builtin === 'string' ? { builtin: m.builtin } : {}),
+    // Glass only: how opaque (0.05 – 1); missing = the default.
+    ...(Number.isFinite(m.opacity) ? { opacity: Math.min(1, Math.max(0.05, m.opacity)) } : {}),
     ...(typeof m.image === 'string' && !m.image.startsWith('data:') ? { image: m.image } : {}),
     size: [Math.max(0.01, num(size[0], 1)), Math.max(0.01, num(size[1], 1))],
     rotation: num(m.rotation, 0) % 360,
@@ -1182,13 +1190,14 @@ export class Model {
       if (b.mat) geo.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
       geo.computeBoundingSphere();
       const material = faded ? fadedFaceMat
-        : b.mat ? texturedMaterial(b.mat.id, b.ground, textureOf(b.mat, this.images))
+        : b.mat ? texturedMaterial(b.mat, b.ground, textureOf(b.mat, this.images))
           : b.ground ? groundFaceMat : faceMat;
       const mesh = new THREE.Mesh(geo, material);
-      mesh.castShadow = !b.ground && !faded;
+      const glass = !faded && isGlass(b.mat);
+      mesh.castShadow = !b.ground && !faded && !glass; // light goes through glass
       mesh.receiveShadow = !faded;
       mesh.userData = { faceIds: b.ids, groupId, mesh: m };
-      if (faded) mesh.userData.noAO = true;
+      if (faded || glass) mesh.userData.noAO = true; // (AO would darken what's seen through it)
       this.group.add(mesh);
       if (!faded) this.pickables.push(mesh);
     }

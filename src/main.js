@@ -7,7 +7,7 @@ import { createRenderPipeline } from './render.js';
 import { createSceneSettings, pickValid, changedFrom } from './sceneSettings.js';
 import { createTools, MIN_SIDES, MAX_SIDES } from './tools.js';
 import { cm, formatLength, formatArea } from './units.js';
-import { thumbnail, builtinSize, readImageFile, unitsOf } from './materials.js';
+import { thumbnail, builtinSize, readImageFile, unitsOf, isGlass, GLASS_OPACITY } from './materials.js';
 import { createPerson } from './person.js';
 import { createOrbitCenter } from './orbitCenter.js';
 import { createSideGrid } from './sideGrid.js';
@@ -377,6 +377,15 @@ function refreshMaterials() {
   $('mat-edit').hidden = !m && !isDefault;
   $('mat-row-default').hidden = !isDefault;
   for (const id of ['mat-row-name', 'mat-row-tint', 'mat-row-w', 'mat-row-h', 'mat-row-rot', 'mat-row-ox', 'mat-row-oy', 'mat-delete']) $(id).hidden = isDefault;
+  // Glass: no pattern to size or turn; an opacity slider instead.
+  const glass = isGlass(m);
+  for (const id of ['mat-row-w', 'mat-row-h', 'mat-row-rot', 'mat-row-ox', 'mat-row-oy']) if (glass) $(id).hidden = true;
+  $('mat-row-opacity').hidden = $('mat-opacity').hidden = !glass;
+  if (glass) {
+    const pct = Math.round((m.opacity ?? GLASS_OPACITY) * 100);
+    $('mat-opacity-value').textContent = `${pct}%`;
+    if (document.activeElement !== $('mat-opacity')) $('mat-opacity').value = String(pct);
+  }
   $('mat-apply').disabled = model.selectionMaterial() === undefined;
   if (m) {
     // Sizes per tile / plank / brick (a repeat may hold several).
@@ -437,6 +446,11 @@ for (const id of ['mat-ox', 'mat-oy']) {
   $(id).addEventListener('input', () => model.updateMaterial(editingMaterial, { offset: matOffset() }, { live: true }));
   $(id).addEventListener('change', () => { model.updateMaterial(editingMaterial, { offset: matOffset() }); refreshMaterials(); });
 }
+$('mat-opacity').addEventListener('input', (e) => {
+  $('mat-opacity-value').textContent = `${e.target.value}%`;
+  model.updateMaterial(editingMaterial, { opacity: e.target.value / 100 }, { live: true });
+});
+$('mat-opacity').addEventListener('change', (e) => model.updateMaterial(editingMaterial, { opacity: e.target.value / 100 }));
 $('mat-apply').addEventListener('click', () => {
   if (editingMaterial === 'default') model.applyDefaultMaterial(settings.color);
   else model.setSelectionMaterial(editingMaterial);

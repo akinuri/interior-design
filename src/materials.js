@@ -101,7 +101,21 @@ const BUILTINS = {
       }
     },
   },
+  // Glass: a pale see-through tint (no pattern: it's drawn transparent and glossy, see model.js).
+  glass: {
+    size: [1, 1],
+    units: [1, 1],
+    draw(g) {
+      g.fillStyle = '#d3e8ea';
+      g.fillRect(0, 0, TEX, TEX);
+    },
+  },
 };
+
+/** Is it glass (see-through, glossy; no texture size to set)? */
+export const isGlass = (mat) => mat?.builtin === 'glass';
+/** How opaque glass is by default (0 = invisible, 1 = solid). */
+export const GLASS_OPACITY = 0.3;
 
 export const BUILTIN_NAMES = Object.keys(BUILTINS);
 
