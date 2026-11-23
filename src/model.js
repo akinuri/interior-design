@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
-import { Mesh, shapesToMesh } from './mesh.js';
+import { Mesh, shapesToMesh, cleanTex } from './mesh.js';
 import { createMeasureView, createGuideView } from './measurements.js';
-import { textureOf, isGlass, GLASS_OPACITY } from './materials.js';
+import { textureOf, isGlass, GLASS_OPACITY, unitsOf } from './materials.js';
 import { booleanOp, isSolid } from './boolean.js';
 
 /*
@@ -300,11 +300,7 @@ function cleanMaterial(m) {
     ...(typeof m.image === 'string' && !m.image.startsWith('data:') ? { image: m.image } : {}),
     size: [Math.max(0.01, num(size[0], 1)), Math.max(0.01, num(size[1], 1))],
     rotation: num(m.rotation, 0) % 360,
-    // Shifts the pattern along its own (rotated) width / height, m; kept within one repeat.
-    offset: [0, 1].map((i) => {
-      const w = Math.max(0.01, num(size[i], 1)), o = num(Array.isArray(m.offset) ? m.offset[i] : 0, 0) % w;
-      return Math.abs(o) < 1e-9 ? 0 : o;
-    }),
+    // (Where the pattern sits is per face: `tex` on faces, see cleanTex in mesh.js.)
   };
 }
 
@@ -543,6 +539,59 @@ export class Model {
     if (!t.length) return undefined;
     const ids = new Set(t.map(([m, f]) => m.faces.get(f).material ?? ''));
     return ids.size === 1 ? [...ids][0] : null;
+  }
+
+  /** Selected faces (also of selected groups) with a pattern to place: a texture that isn't glass. */
+  texTargets() {
+    return this.colorTargets().filter(([m, f]) => {
+      const mat = this.materialById(m.faces.get(f).material);
+      return mat && !isGlass(mat);
+    });
+  }
+
+  /**
+   * Where the texture sits on the selected faces: { offsetX, offsetY (m), rotation (deg), width,
+   * height (m per tile / plank / brick: the face's own size, else the material's) }, each null where
+   * they differ; undefined when no selected face has a texture.
+   */
+  selectionTex() {
+    const t = this.texTargets();
+    if (!t.length) return undefined;
+    const vals = t.map(([m, f]) => {
+      const face = m.faces.get(f), x = face.tex, mat = this.materialById(face.material);
+      const size = x?.size ?? mat.size, u = unitsOf(mat);
+      return { offsetX: x?.offset[0] ?? 0, offsetY: x?.offset[1] ?? 0, rotation: x?.rotation ?? 0, width: size[0] / u[0], height: size[1] / u[1] };
+    });
+    const out = {};
+    for (const k of Object.keys(vals[0])) out[k] = vals.every((v) => Math.abs(v[k] - vals[0][k]) < 1e-9) ? vals[0][k] : null;
+    return out;
+  }
+
+  /**
+   * Change where the texture sits on the selected faces: `patch` sets some of offsetX, offsetY,
+   * rotation, width, height (m per tile / plank / brick; the rest stay as each face has them);
+   * `reset` puts it back to the material's own. `live`: while typing (one undo step for the change).
+   */
+  setSelectionTex(patch, { live = false, reset = false } = {}) {
+    const t = this.texTargets();
+    if (!t.length) return;
+    if (!this.texLive) this.checkpoint();
+    this.texLive = live;
+    for (const [m, f] of t) {
+      const face = m.faces.get(f);
+      const cur = face.tex ?? { offset: [0, 0], rotation: 0 };
+      const mat = this.materialById(face.material), u = unitsOf(mat);
+      // A new width / height makes the size this face's own (the other side as it is now).
+      const own = patch.width != null || patch.height != null;
+      const size = cur.size ?? mat.size;
+      const next = reset ? null : cleanTex({
+        offset: [patch.offsetX ?? cur.offset[0], patch.offsetY ?? cur.offset[1]],
+        rotation: patch.rotation ?? cur.rotation,
+        size: own ? [patch.width != null ? patch.width * u[0] : size[0], patch.height != null ? patch.height * u[1] : size[1]] : cur.size,
+      });
+      if (next) face.tex = next; else delete face.tex;
+    }
+    this.sync(!live);
   }
 
   /** The default material on the selected faces / groups: no texture, the given colour (one undo step). */
@@ -1159,11 +1208,14 @@ export class Model {
       // Texture laid flat on the face, at real size, aligned to the world (tiles line up across faces).
       let uvOf = null;
       if (tex) {
+        // This face's placement: turned on top of the material's turn, shifted, its size.
         const plane = m.facePlane(id);
-        const a = THREE.MathUtils.degToRad(mat.rotation), cos = Math.cos(a), sin = Math.sin(a);
+        const place = f.tex ?? { offset: [0, 0], rotation: 0 };
+        const a = THREE.MathUtils.degToRad(mat.rotation + place.rotation), cos = Math.cos(a), sin = Math.sin(a);
+        const [w, h] = place.size ?? mat.size; // the face's own size, else the material's
         uvOf = (p) => {
           const s = p.dot(plane.u), t = p.dot(plane.v);
-          return [(s * cos - t * sin - mat.offset[0]) / mat.size[0], (s * sin + t * cos - mat.offset[1]) / mat.size[1]];
+          return [(s * cos - t * sin - place.offset[0]) / w, (s * sin + t * cos - place.offset[1]) / h];
         };
       }
       // Selected faces are tinted in the shader (an overlay would fight the faces in depth).

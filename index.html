@@ -122,8 +122,6 @@
             <label id="mat-row-w"><span data-i18n="mat.width">Width (cm)</span> <input id="mat-w" type="number" min="1" step="1" /></label>
             <label id="mat-row-h"><span data-i18n="mat.height">Height (cm)</span> <input id="mat-h" type="number" min="1" step="1" /></label>
             <label id="mat-row-rot"><span data-i18n="mat.rotation">Rotation (°)</span> <input id="mat-rot" type="number" step="15" /></label>
-            <label id="mat-row-ox" data-i18n-title="mat.offset.tip"><span data-i18n="mat.offsetX">Offset X (cm)</span> <input id="mat-ox" type="number" step="1" /></label>
-            <label id="mat-row-oy" data-i18n-title="mat.offset.tip"><span data-i18n="mat.offsetY">Offset Y (cm)</span> <input id="mat-oy" type="number" step="1" /></label>
             <label id="mat-row-opacity"><span data-i18n="mat.opacity">Opacity</span> <output id="mat-opacity-value"></output></label>
             <input id="mat-opacity" type="range" min="5" max="100" step="1" />
             <button id="mat-apply" data-i18n="mat.apply" data-i18n-title="mat.apply.tip">Apply to selection</button>
@@ -206,6 +204,15 @@
           <label><span id="sel-size-label" data-i18n="f.selected">Selected</span> <output id="sel-size"></output></label>
           <label id="sel-row-glabel" data-i18n-title="f.guideLabel.tip"><span data-i18n="f.guideLabel">Offset label</span> <input id="sel-glabel" type="checkbox" class="check" /></label>
           <label id="sel-row-material"><span data-i18n="mat.material">Material</span> <select id="sel-material"></select></label>
+          <!-- Where the texture sits on these faces (each face has its own). -->
+          <div id="sel-tex" class="sel-tex" data-i18n-title="tex.tip">
+            <label><span data-i18n="tex.offsetX">Texture X (cm)</span> <input id="tex-ox" type="number" step="1" /></label>
+            <label><span data-i18n="tex.offsetY">Texture Y (cm)</span> <input id="tex-oy" type="number" step="1" /></label>
+            <label><span data-i18n="tex.rotation">Texture turn (°)</span> <input id="tex-rot" type="number" step="15" /></label>
+            <label><span data-i18n="tex.width">Texture width (cm)</span> <input id="tex-w" type="number" min="1" step="1" /></label>
+            <label><span data-i18n="tex.height">Texture height (cm)</span> <input id="tex-h" type="number" min="1" step="1" /></label>
+            <button id="tex-reset" type="button" data-i18n="tex.reset" data-i18n-title="tex.reset.tip">Reset texture</button>
+          </div>
           <label id="sel-row-color"><span data-i18n="f.color">Color</span> <input id="sel-color" type="color" /></label>
           <div class="sel-helpers">
             <button data-select="loop" data-i18n="btn.loop" data-i18n-title="btn.loop.tip">Loop</button>

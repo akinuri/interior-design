@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Mesh, GROUND, triangulate, makePlane } from './mesh.js';
+import { Mesh, GROUND, triangulate, makePlane, cleanTex } from './mesh.js';
 import { t } from './i18n.js';
 import { cm, formatLength, parseLength } from './units.js';
 
@@ -1126,6 +1126,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     for (const g of model.selectedGroups) for (const v of model.groups.get(g).mesh.vertices.values()) add(v);
     for (const id of model.selectedMeasurements) { const it = model.measurements.find((x) => x.id === id); if (it) { add(it.a); add(it.b); } }
     out.guides = [];
+    out.tex = texCarried(out);
     if (!attached) return out;
 
     // Guides and measurements attached to what moves come along: a guide whose source edge
@@ -1167,6 +1168,51 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     for (const g of model.guides) if (g.from && onMoving(g.from)) { add(g.p); add(g.from); out.guides.push({ g, d: g.d.clone() }); }
     for (const it of model.measurements) { if (onMoving(it.a)) add(it.a); if (onMoving(it.b)) add(it.b); }
     return out;
+  }
+
+  /**
+   * Textured faces that move whole (every corner among `targets`): their texture is glued to
+   * them, so it goes along (the texture is laid out in world coordinates; see carryTex).
+   */
+  function texCarried(targets) {
+    const moving = new Set(targets.map((t) => t.p));
+    const out = [];
+    for (const mesh of model.meshes) {
+      for (const [fid, f] of mesh.faces) {
+        if (!f.material || !f.loops.flat().every((v) => moving.has(mesh.vertices.get(v)))) continue;
+        const plane = mesh.facePlane(fid), p = mesh.vertices.get(f.loops[0][0]);
+        out.push({ mesh, fid, tex: f.tex ?? null, u: plane.u.clone(), v: plane.v.clone(), p, orig: p.clone() });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * After the corners of `targets` moved (by `turn`, a quaternion, if turned): shift / turn each
+   * whole-moving face's texture so it sits on the face as before.
+   */
+  function carryTex(targets, turn = null) {
+    for (const it of targets.tex ?? []) {
+      const face = it.mesh.faces.get(it.fid);
+      const mat = face && model.materialById(face.material);
+      if (!mat) continue;
+      const t0 = it.tex ?? { offset: [0, 0], rotation: 0 };
+      const a = THREE.MathUtils.degToRad(mat.rotation + t0.rotation), cos = Math.cos(a), sin = Math.sin(a);
+      // Where a corner was in the texture (before dividing by the size), and the texture's x direction.
+      const s0 = it.orig.dot(it.u), r0 = it.orig.dot(it.v);
+      const X = s0 * cos - r0 * sin - t0.offset[0], Y = s0 * sin + r0 * cos - t0.offset[1];
+      const dir = it.u.clone().multiplyScalar(cos).addScaledVector(it.v, -sin);
+      if (turn) dir.applyQuaternion(turn);
+      // The same in the face's plane now.
+      const plane = it.mesh.facePlane(it.fid);
+      const a2 = Math.atan2(-dir.dot(plane.v), dir.dot(plane.u)), cos2 = Math.cos(a2), sin2 = Math.sin(a2);
+      const s = it.p.dot(plane.u), r = it.p.dot(plane.v);
+      let deg = THREE.MathUtils.radToDeg(a2) - mat.rotation;
+      deg -= 360 * Math.round(deg / 360);
+      if (Math.abs(deg) < 1e-7) deg = 0;
+      const tex = cleanTex({ offset: [s * cos2 - r * sin2 - X, s * sin2 + r * cos2 - Y], rotation: deg, size: t0.size });
+      if (tex) face.tex = tex; else delete face.tex;
+    }
   }
 
   /** Nothing selected: Move takes what's under the cursor (as a click with Select would). */
@@ -1277,6 +1323,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     if (!cur || !!cur.copy === on) return;
     const keep = cur === mv ? mv.delta.clone() : rot.angle;
     for (const t of cur.targets) t.p.copy(t.orig);
+    carryTex(cur.targets);
     for (const { g, d } of cur.guides ?? []) g.d.copy(d);
     if (on) {
       cur.originals = { keys: [...model.selection], targets: cur.targets, guides: cur.guides };
@@ -1297,6 +1344,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   function applyMove(delta) {
     mv.delta.copy(delta);
     for (const t of mv.targets) t.p.copy(t.orig).add(delta);
+    carryTex(mv.targets);
     model.sync(false);
   }
 
@@ -1372,6 +1420,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     if (keep && mv.delta.lengthSq() > 1e-12) model.sync(true);
     else {
       for (const t of mv.targets) t.p.copy(t.orig);
+      carryTex(mv.targets);
       if (mv.copy) { model.removeKeys(mv.copy); model.selection = new Set(mv.originals.keys); }
       model.dropCheckpoint();
       model.sync(false);
@@ -1562,6 +1611,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     rot.angle = angle;
     const q = new THREE.Quaternion().setFromAxisAngle(rot.axis, angle);
     for (const t of rot.targets) t.p.copy(t.orig).sub(rot.center).applyQuaternion(q).add(rot.center);
+    carryTex(rot.targets, q);
     for (const { g, d } of rot.guides) g.d.copy(d).applyQuaternion(q);
     model.sync(false);
   }
@@ -1585,6 +1635,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       if (keep && Math.abs(rot.angle) > 1e-9) model.sync(true);
       else {
         for (const t of rot.targets) t.p.copy(t.orig);
+        carryTex(rot.targets);
         for (const { g, d } of rot.guides) g.d.copy(d);
         if (rot.copy) { model.removeKeys(rot.copy); model.selection = new Set(rot.originals.keys); }
         model.dropCheckpoint();
@@ -1795,7 +1846,10 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
         const t = m.faceTriangles(id)[0];
         if (!t) continue;
         const c = o.plane.to2D(t.pts[0].clone().add(t.pts[1]).add(t.pts[2]).divideScalar(3));
-        if (insideDistance(ring, c) > 0 && insideDistance(o.loops[0], c) < 0) g.material = f.material;
+        if (insideDistance(ring, c) > 0 && insideDistance(o.loops[0], c) < 0) {
+          g.material = f.material;
+          if (f.tex) g.tex = { ...f.tex, offset: [...f.tex.offset] };
+        }
       }
     }
     model.sync();

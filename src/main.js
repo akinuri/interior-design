@@ -376,10 +376,10 @@ function refreshMaterials() {
   if (!m && !isDefault) editingMaterial = null;
   $('mat-edit').hidden = !m && !isDefault;
   $('mat-row-default').hidden = !isDefault;
-  for (const id of ['mat-row-name', 'mat-row-tint', 'mat-row-w', 'mat-row-h', 'mat-row-rot', 'mat-row-ox', 'mat-row-oy', 'mat-delete']) $(id).hidden = isDefault;
+  for (const id of ['mat-row-name', 'mat-row-tint', 'mat-row-w', 'mat-row-h', 'mat-row-rot', 'mat-delete']) $(id).hidden = isDefault;
   // Glass: no pattern to size or turn; an opacity slider instead.
   const glass = isGlass(m);
-  for (const id of ['mat-row-w', 'mat-row-h', 'mat-row-rot', 'mat-row-ox', 'mat-row-oy']) if (glass) $(id).hidden = true;
+  for (const id of ['mat-row-w', 'mat-row-h', 'mat-row-rot']) if (glass) $(id).hidden = true;
   $('mat-row-opacity').hidden = $('mat-opacity').hidden = !glass;
   if (glass) {
     const pct = Math.round((m.opacity ?? GLASS_OPACITY) * 100);
@@ -390,7 +390,7 @@ function refreshMaterials() {
   if (m) {
     // Sizes per tile / plank / brick (a repeat may hold several).
     const u = unitsOf(m);
-    for (const [id, v] of [['mat-name', m.name], ['mat-color', m.color], ['mat-w', cm(m.size[0] / u[0])], ['mat-h', cm(m.size[1] / u[1])], ['mat-rot', m.rotation], ['mat-ox', cm(m.offset[0])], ['mat-oy', cm(m.offset[1])]]) {
+    for (const [id, v] of [['mat-name', m.name], ['mat-color', m.color], ['mat-w', cm(m.size[0] / u[0])], ['mat-h', cm(m.size[1] / u[1])], ['mat-rot', m.rotation]]) {
       if (document.activeElement !== $(id)) $(id).value = String(v);
     }
   }
@@ -401,6 +401,17 @@ function refreshMaterials() {
   $('sel-row-material').hidden = state === undefined || (!model.materials.length && !state);
   if (state === null) sel.prepend(new Option(t('mat.mixed'), '__mixed'));
   sel.value = state === null ? '__mixed' : state ?? '';
+  // Selection card: where the texture sits on the selected faces (blank where they differ).
+  const tx = model.selectionTex();
+  $('sel-tex').hidden = tx === undefined;
+  if (tx) {
+    for (const [id, v] of [['tex-ox', tx.offsetX == null ? null : cm(tx.offsetX)], ['tex-oy', tx.offsetY == null ? null : cm(tx.offsetY)],
+      ['tex-rot', tx.rotation == null ? null : +tx.rotation.toFixed(2)], ['tex-w', tx.width == null ? null : cm(tx.width)], ['tex-h', tx.height == null ? null : cm(tx.height)]]) {
+      if (document.activeElement === $(id)) continue;
+      $(id).value = v == null ? '' : String(v);
+      $(id).placeholder = v == null ? t('mat.mixed') : '';
+    }
+  }
 }
 model.onChange(refreshMaterials);
 onLangChange(refreshMaterials);
@@ -441,11 +452,15 @@ for (const id of ['mat-w', 'mat-h']) {
 }
 $('mat-rot').addEventListener('input', (e) => model.updateMaterial(editingMaterial, { rotation: parseFloat(e.target.value) || 0 }, { live: true }));
 $('mat-rot').addEventListener('change', (e) => model.updateMaterial(editingMaterial, { rotation: parseFloat(e.target.value) || 0 }));
-const matOffset = () => [(parseFloat($('mat-ox').value) || 0) / 100, (parseFloat($('mat-oy').value) || 0) / 100];
-for (const id of ['mat-ox', 'mat-oy']) {
-  $(id).addEventListener('input', () => model.updateMaterial(editingMaterial, { offset: matOffset() }, { live: true }));
-  $(id).addEventListener('change', () => { model.updateMaterial(editingMaterial, { offset: matOffset() }); refreshMaterials(); });
+// Texture placement on the selected faces: each box changes only its own value (mixed ones stay).
+const TEX_INPUTS = { 'tex-ox': ['offsetX', (v) => v / 100], 'tex-oy': ['offsetY', (v) => v / 100], 'tex-rot': ['rotation', (v) => v], 'tex-w': ['width', (v) => v / 100], 'tex-h': ['height', (v) => v / 100] };
+for (const [id, [key, conv]] of Object.entries(TEX_INPUTS)) {
+  const sized = key === 'width' || key === 'height';
+  const read = () => { const v = parseFloat($(id).value); return Number.isFinite(v) && (!sized || v > 0) ? { [key]: conv(v) } : null; };
+  $(id).addEventListener('input', () => { const p = read(); if (p) model.setSelectionTex(p, { live: true }); });
+  $(id).addEventListener('change', () => { const p = read(); if (p) model.setSelectionTex(p); refreshMaterials(); });
 }
+$('tex-reset').addEventListener('click', () => model.setSelectionTex({}, { reset: true }));
 $('mat-opacity').addEventListener('input', (e) => {
   $('mat-opacity-value').textContent = `${e.target.value}%`;
   model.updateMaterial(editingMaterial, { opacity: e.target.value / 100 }, { live: true });

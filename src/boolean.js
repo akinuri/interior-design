@@ -126,7 +126,7 @@ function polygonsOf(mesh) {
   for (const [fid, f] of mesh.faces) {
     const n = mesh.faceNormal(fid);
     const plane = new Plane(n.clone(), n.dot(mesh.vertices.get(f.loops[0][0])));
-    const shared = { color: f.color, material: f.material ?? null };
+    const shared = { color: f.color, material: f.material ?? null, tex: f.tex ?? null };
     for (const tri of mesh.faceTriangles(fid)) {
       out.push(new Polygon(tri.pts.map((p) => p.clone()), shared, plane));
     }
@@ -178,7 +178,7 @@ export function booleanOp(a, b, op) {
     while (ids.length > 1 && ids[0] === ids.at(-1)) ids.pop();
     if (new Set(ids).size < 3) continue;
     const n = poly.plane.normal;
-    const fid = m.addFace([ids], { normal: n, color: poly.shared.color, material: poly.shared.material });
+    const fid = m.addFace([ids], { normal: n, color: poly.shared.color, material: poly.shared.material, tex: poly.shared.tex });
     if (fid != null) planeOf(n, poly.plane.w).faces.add(fid);
   }
   if (!m.faces.size) return null;
@@ -191,7 +191,8 @@ export function booleanOp(a, b, op) {
     for (const [eid, e] of m.edges) {
       if (!plane.has(m.vertices.get(e.a)) || !plane.has(m.vertices.get(e.b))) continue;
       const fs = m.facesOfEdge(eid).map((f) => m.faces.get(f));
-      if (fs.length && fs.every((f) => f.color === fs[0].color && (f.material ?? null) === (fs[0].material ?? null))) dissolve.add(eid);
+      const look = (f) => `${f.color}|${f.material ?? ''}|${JSON.stringify(f.tex ?? null)}`;
+      if (fs.length && fs.every((f) => look(f) === look(fs[0]))) dissolve.add(eid);
     }
     m.rebuildPlane(plane, { dissolve });
   }

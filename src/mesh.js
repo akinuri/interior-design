@@ -7,7 +7,8 @@ import * as THREE from 'three';
  *   edges:    id → { a, b, soft?, curve? }
  *               soft  = hidden and smoothed across (the sides of a cylinder)
  *               curve = id shared by the segments of one drawn circle
- *   faces:    id → { loops: [outer, ...holes], color, material? }   (material: a material id, see model.js)
+ *   faces:    id → { loops: [outer, ...holes], color, material?, tex? }   (material: a material id, see model.js;
+ *             tex: where the texture sits on this face: { offset: [x, y] m, rotation deg, size? }, see cleanTex)
  *               each loop = vertex ids; the outer loop runs counter-clockwise around the
  *               face normal, holes clockwise. Every pair of neighbouring loop vertices has an edge.
  *
@@ -104,6 +105,26 @@ function interiorPoint(outer, holes) {
   return best;
 }
 
+/**
+ * A face's texture placement, made valid: offset (m, along the texture's own width / height),
+ * rotation (deg, on top of the material's) and, only if this face has its own, size ([w, h] m of
+ * one repeat; without it the material's size applies, and follows the material). null when it's
+ * all default (nothing to store).
+ */
+export function cleanTex(t) {
+  if (!t || typeof t !== 'object') return null;
+  const num = (v, d) => (Number.isFinite(v) ? v : d);
+  const off = Array.isArray(t.offset) ? t.offset : [];
+  const size = Array.isArray(t.size) && t.size.every((v) => Number.isFinite(v) && v > 0) ? t.size.map((v) => Math.max(0.01, v)) : null;
+  const out = {
+    offset: [num(off[0], 0), num(off[1], 0)],
+    rotation: num(t.rotation, 0) % 360,
+    ...(size ? { size } : {}),
+  };
+  const plain = Math.abs(out.offset[0]) < 1e-9 && Math.abs(out.offset[1]) < 1e-9 && Math.abs(out.rotation) < 1e-9 && !size;
+  return plain ? null : out;
+}
+
 // --- the mesh --------------------------------------------------------------------------
 
 export class Mesh {
@@ -129,7 +150,7 @@ export class Mesh {
       if (e.curve) out.push(e.curve);
       return out;
     });
-    const faces = [...this.faces.values()].map((f) => ({ loops: f.loops.map((l) => l.map((v) => idx.get(v))), color: f.color, ...(f.material ? { material: f.material } : {}) }));
+    const faces = [...this.faces.values()].map((f) => ({ loops: f.loops.map((l) => l.map((v) => idx.get(v))), color: f.color, ...(f.material ? { material: f.material } : {}), ...(f.tex ? { tex: f.tex } : {}) }));
     return { vertices, edges, faces };
   }
 
@@ -158,7 +179,7 @@ export class Mesh {
       const loops = f.loops.filter(Array.isArray).map((l) => l.map(vid));
       if (!loops.length || loops.some((l) => l.includes(null))) continue;
       const color = typeof f.color === 'string' && /^#[0-9a-f]{6}$/i.test(f.color) ? f.color : '#ffffff';
-      m.addFace(loops, { color, material: typeof f.material === 'string' ? f.material : null });
+      m.addFace(loops, { color, material: typeof f.material === 'string' ? f.material : null, tex: f.tex });
     }
     m.splitCurves();
     return m;
@@ -232,7 +253,7 @@ export class Mesh {
    * Add a face. Loops are cleaned up and oriented to `normal` (default: the outer
    * loop's own winding). Missing edges are added. Returns the face id or null.
    */
-  addFace(loops, { normal, color = '#ffffff', material = null } = {}) {
+  addFace(loops, { normal, color = '#ffffff', material = null, tex = null } = {}) {
     const clean = loops.map((l) => {
       const out = [];
       for (const v of l) if (out.at(-1) !== v) out.push(v);
@@ -247,7 +268,8 @@ export class Mesh {
     const fixed = [clean[0], ...clean.slice(1).filter((l) => l.length >= 3)];
     for (const l of fixed) for (let i = 0; i < l.length; i++) this.addEdge(l[i], l[(i + 1) % l.length]);
     const id = this.nextId++;
-    this.faces.set(id, { loops: fixed, color, ...(material ? { material } : {}) });
+    const place = cleanTex(tex);
+    this.faces.set(id, { loops: fixed, color, ...(material ? { material } : {}), ...(place ? { tex: place } : {}) });
     this.changed();
     return id;
   }
@@ -480,7 +502,7 @@ export class Mesh {
     // Old faces here (their outlines decide which regions are faces).
     const oldFaces = this.facesIn(plane).map((id) => {
       const f = this.faces.get(id);
-      return { id, color: f.color, material: f.material, side: Math.sign(this.faceNormal(id).dot(plane.n)), loops2D: f.loops.map((l) => l.map(p2)) };
+      return { id, color: f.color, material: f.material, tex: f.tex, side: Math.sign(this.faceNormal(id).dot(plane.n)), loops2D: f.loops.map((l) => l.map(p2)) };
     });
     // Edges also used by faces in other planes can't be dissolved.
     const usedElsewhere = (eid) => this.facesOfEdge(eid).some((fid) => !oldFaces.some((o) => o.id === fid));
@@ -577,6 +599,7 @@ export class Mesh {
           r.side = cover[0].side;
           r.color = cover[0].color;
           r.material = cover[0].material;
+          r.tex = cover[0].tex;
         } else if (createFaces && r.outer.edges.some((id) => newEdges.has(id))) {
           r.side = normal && normal.dot(plane.n) < 0 ? -1 : 1;
           r.color = color;
@@ -602,7 +625,7 @@ export class Mesh {
     for (const r of regions ?? []) {
       if (!r.side) continue;
       const n = plane.n.clone().multiplyScalar(r.side);
-      const fid = this.addFace([r.outer.verts, ...r.holes.map((h) => h.verts)], { normal: n, color: r.color, material: r.material });
+      const fid = this.addFace([r.outer.verts, ...r.holes.map((h) => h.verts)], { normal: n, color: r.color, material: r.material, tex: r.tex });
       if (fid != null) result.push(fid);
     }
     return result;
@@ -700,7 +723,7 @@ export class Mesh {
     else {
       // Stays as the base, facing away from the new part.
       this.deleteFace(fid);
-      this.addFace(loops, { normal: n.clone().multiplyScalar(-sign), color: face.color, material: face.material });
+      this.addFace(loops, { normal: n.clone().multiplyScalar(-sign), color: face.color, material: face.material, tex: face.tex });
     }
 
     const moved = new Map();
@@ -736,7 +759,7 @@ export class Mesh {
       }
     }
     const capLoops = loops.map((l) => l.map((v) => moved.get(v)));
-    const cap = this.addFace(capLoops, { normal: attached ? n : n.clone().multiplyScalar(sign), color: face.color, material: face.material });
+    const cap = this.addFace(capLoops, { normal: attached ? n : n.clone().multiplyScalar(sign), color: face.color, material: face.material, tex: face.tex });
     addPlane(cap);
 
     // Clean up: merge with coplanar neighbours, cancel faces that meet back to back.
@@ -857,7 +880,7 @@ export class Mesh {
     for (const fid of faceIds) {
       const f = this.faces.get(fid);
       if (!f) continue;
-      const nf = dst.addFace(f.loops.map((l) => l.map(v)), { normal: this.faceNormal(fid), color: f.color, material: f.material });
+      const nf = dst.addFace(f.loops.map((l) => l.map(v)), { normal: this.faceNormal(fid), color: f.color, material: f.material, tex: f.tex });
       if (nf != null) faces.push(nf);
       this.faceEdges(fid).forEach(copyEdge);
     }

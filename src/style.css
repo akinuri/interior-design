@@ -251,6 +251,9 @@ button.icon.lang {
 
 /* Selection card: Loop / Ring / Grow / Shrink in one row of small buttons. */
 .sel-helpers[hidden] { display: none; }
+/* Texture placement (Selection card): its own block, set off by a divider. */
+.sel-tex { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
+.sel-tex[hidden] { display: none; }
 .sel-helpers {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
