@@ -20,7 +20,7 @@ README.md describes the features for users; this file is what you need to keep d
   measurements, guides, materials, selection (keys `f<id>` face, `e<id>` edge, `g<id>` group, `m<id>`
   measurement, `u<id>` guide), undo (JSON snapshots, `checkpoint()` before an edit), rendering of meshes.
 - `tools.js`: all pointer / keyboard interaction (select, orbit, pan, line, rect, circle, push/pull, move,
-  measure, person), snapping (`snap()` on a plane; `screenSnap()` / `pullSnap()` in screen space;
+  rotate, measure, person), snapping (`snap()` on a plane; `screenSnap()` / `pullSnap()` in screen space;
   `crossings()` for intersections), typed values, axis / edge-aligned locks.
 - `main.js`: UI wiring (cards, buttons, views, Home / Focus framing, shortcuts).
 - `boolean.js`: union / subtract / intersect of closed groups (BSP CSG, then merged back with `rebuildPlane`).
@@ -38,7 +38,7 @@ README.md describes the features for users; this file is what you need to keep d
 ## Working with the owner
 
 - Short requests, iterated quickly; they compare against SketchUp. Prefer SketchUp's behaviour when unsure.
-- A bare `c` means: commit the pending work (no push). Commit style: `(feat)`, `(fix)`, `(ui)`, `(docs)` + short
+- A bare `c` means: commit the pending work (no push); a bare `p` means: push. Commit style: `(feat)`, `(fix)`, `(ui)`, `(docs)` + short
   summary; split unrelated changes into separate commits.
 - Don't commit their files: `ref/`, screenshots in the root, `scene_*.png`, `design_*.json`.
 - UI taste: general controls first (e.g. "Add" before lists), separators between groups, subtle labels, no
@@ -55,6 +55,11 @@ README.md describes the features for users; this file is what you need to keep d
   mouse (kept while reaching for an outer corner). Moves along the floor, but in a level view (camera within
   ~15° of horizontal) along the upright plane facing the camera. Locks: Shift (held, nearest axis), `→`/`←` X/Z,
   `↑` vertical. Moves landing over 1 km away are ignored (one once flung a group 500,000 km; Home went blank).
+  A tap on Ctrl (alone, not Ctrl+key) toggles copy mode, before or during a move; it resets after each move.
+- **Rotate** (`K`; Q is Orbit): centre → start direction → angle (15° steps, corners exact, typed degrees). The
+  protractor lies on the face under the mouse; `↑`/`→`/`←` lock Y/X/Z. The bounding box (world axes) shows
+  handles only on the hovered side, all blue: a centre one (protractor placed, axis fixed) and four out from it
+  (turn straight away). Ctrl copies, as with Move.
 - **Measure**: ending on a corner / edge / midpoint / intersection → a measurement (ends, line, label). Ending
   anywhere else, from any start → a guide through the end, square to the measured line, labelled (from an edge:
   parallel to that edge). Shift locks the direction (sticky: stays after release; dropped by waving the mouse
