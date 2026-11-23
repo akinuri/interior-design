@@ -787,8 +787,13 @@ export class Mesh {
     for (const f of faceIds) this.faceEdges(f).forEach((e) => edges.add(e));
     const queue = [...edges];
     while (queue.length) {
-      const e = this.edges.get(queue.pop());
-      for (const v of [e.a, e.b]) for (const x of vertexEdges.get(v) ?? []) if (!edges.has(x)) { edges.add(x); queue.push(x); }
+      const id = queue.pop();
+      const e = this.edges.get(id);
+      const next = [...(vertexEdges.get(e.a) ?? []), ...(vertexEdges.get(e.b) ?? [])];
+      // Through faces too: a hole's edges touch the rest only by the face around them (a box
+      // with a hole cut through it is one thing).
+      for (const f of this.facesOfEdge(id)) next.push(...this.faceEdges(f));
+      for (const x of next) if (!edges.has(x)) { edges.add(x); queue.push(x); }
     }
     const faces = new Set();
     for (const e of edges) this.facesOfEdge(e).forEach((f) => faces.add(f));

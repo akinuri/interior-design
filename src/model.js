@@ -347,6 +347,8 @@ export class Model {
     const find = (v) => { while (parent.get(v) !== v) v = parent.get(v); return v; };
     for (const v of m.vertices.keys()) parent.set(v, v);
     for (const e of m.edges.values()) parent.set(find(e.a), find(e.b));
+    // A face joins its holes to its outline (a box with a hole through it is one object).
+    for (const f of m.faces.values()) for (const l of f.loops.slice(1)) parent.set(find(l[0]), find(f.loops[0][0]));
     let n = this.groups.size;
     for (const v of m.vertices.keys()) if (find(v) === v) n++;
     return n;
