@@ -53,7 +53,7 @@ README.md describes the features for users; this file is what you need to keep d
 - **Push/Pull**: no grid steps; hover a corner / edge / parallel face of anything to go level with it; type for exact.
 - **Move**: shows grab points (corners, midpoints) of what will move; with nothing selected, of what's under the
   mouse (kept while reaching for an outer corner). Moves along the floor, but in a level view (camera within
-  ~15° of horizontal) along the upright plane facing the camera. Locks: Shift (held, nearest axis), `→`/`←` X/Z,
+  ~15° of horizontal) along the upright plane facing the camera. Locks: Shift (nearest axis; sticky like Measure's), `→`/`←` X/Z,
   `↑` vertical. Moves landing over 1 km away are ignored (one once flung a group 500,000 km; Home went blank).
   A tap on Ctrl (alone, not Ctrl+key) toggles copy mode, before or during a move; it resets after each move.
 - **Rotate** (`K`; Q is Orbit): centre → start direction → angle (15° steps, corners exact, typed degrees). The
