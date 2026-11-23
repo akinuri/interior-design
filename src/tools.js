@@ -62,6 +62,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   let mv = null; // move in progress: { base, targets: [{ p, orig }], exclude, delta, byPress }
   let moveVertical = false; // Move tool: ↑ toggles moving up / down instead of along the floor
   let moveAxis = null; // Move tool: 'x' / 'z' locked with → / ← (until toggled off or the move ends)
+  let moveCopy = false; // Move tool: a tap on Ctrl toggles copying (the original stays; until the move ends)
+  let ctrlTap = false; // Ctrl is down and nothing else happened since (so its release is a tap)
   let hover = null; // push/pull: face id under the cursor
   let cursor = null; // snapped point: THREE.Vector3 with .kind
   let typed = ''; // typed value (measurements box)
@@ -550,6 +552,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       gripMids.visible = grips.mids.length > 0;
     }
     if (tool === 'move' && mv && cursor?.snapped) showSnapDot(cursor.snapped, cursor.snapped.kind);
+    if (tool === 'move' && !mv && moveCopy && cursor) { label.pos = cursor.clone().addScaledVector(UP, 0.25); label.text = t('tool.copyMode'); }
 
     if (tool === 'line' && chain.length && cursor) {
       const a = chain.at(-1);
@@ -578,7 +581,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       setPoints(preview, [mv.base, cursor]);
       preview.visible = true;
       label.pos = cursor.clone().addScaledVector(UP, 0.25);
-      const lock = moveVertical ? '↕ ' : mv.axis ? `${mv.axis.toUpperCase()} ` : '';
+      const lock = (mv.copy ? '+ ' : '') + (moveVertical ? '↕ ' : mv.axis ? `${mv.axis.toUpperCase()} ` : '');
       label.text = typed ? `${typed}▏` : `${lock}${fmt(mv.delta.length())}`;
     }
 
@@ -1007,8 +1010,11 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
   }, true);
 
   // --- move ---
-  /** Points that move with the selection (each once): selected faces / edges, groups, measurements. */
-  function moveTargets() {
+  /**
+   * Points that move with the selection (each once): selected faces / edges, groups, measurements;
+   * with `attached`, also guides and measurements on what moves (not for a copy: they stay).
+   */
+  function moveTargets(attached = true) {
     const out = [], seen = new Set();
     const add = (p) => { if (p && !seen.has(p)) { seen.add(p); out.push({ p, orig: p.clone() }); } };
     const m = model.mesh;
@@ -1016,6 +1022,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     for (const id of model.selectedEdges) { const e = m.edges.get(id); if (e) { add(m.vertices.get(e.a)); add(m.vertices.get(e.b)); } }
     for (const g of model.selectedGroups) for (const v of model.groups.get(g).mesh.vertices.values()) add(v);
     for (const id of model.selectedMeasurements) { const it = model.measurements.find((x) => x.id === id); if (it) { add(it.a); add(it.b); } }
+    if (!attached) return out;
 
     // Guides and measurements attached to what moves come along: a guide whose source edge
     // moves keeps its offset; a measurement end on a moving corner / edge follows it.
@@ -1150,8 +1157,32 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     const exclude = new Set(targets.map((t) => t.p));
     // Crossings of what stays put (worked out once: what moves doesn't count).
     const crossPts = crossings((A, B) => exclude.has(A) || exclude.has(B)).map((q) => q.clone());
-    mv = { base: cursor.clone(), targets, exclude, crossPts, delta: new THREE.Vector3(), byPress: true };
+    mv = { base: cursor.clone(), targets, exclude, crossPts, delta: new THREE.Vector3(), byPress: true, copy: null };
+    if (moveCopy) setMoveCopy(true);
     return true;
+  }
+
+  /**
+   * Copy mode on / off (also before grabbing). During a move the original goes back in place
+   * and a copy (which becomes the selection) moves instead; off again, the copy goes away.
+   */
+  function setMoveCopy(on) {
+    moveCopy = on;
+    if (!mv || !!mv.copy === on) return;
+    const delta = mv.delta.clone();
+    for (const t of mv.targets) t.p.copy(t.orig);
+    if (on) {
+      mv.originals = { keys: [...model.selection], targets: mv.targets };
+      mv.copy = model.duplicateSelection();
+      mv.targets = moveTargets(false);
+    } else {
+      model.removeKeys(mv.copy);
+      model.selection = new Set(mv.originals.keys);
+      mv.targets = mv.originals.targets;
+      mv.copy = null;
+    }
+    mv.exclude = new Set(mv.targets.map((t) => t.p)); // the original can be snapped to while copying
+    applyMove(delta);
   }
 
   function applyMove(delta) {
@@ -1229,11 +1260,13 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     if (keep && mv.delta.lengthSq() > 1e-12) model.sync(true);
     else {
       for (const t of mv.targets) t.p.copy(t.orig);
+      if (mv.copy) { model.removeKeys(mv.copy); model.selection = new Set(mv.originals.keys); }
       model.dropCheckpoint();
       model.sync(false);
     }
     mv = null;
     moveAxis = null;
+    moveCopy = false;
     typed = '';
   }
   const commitMove = () => endMove(true);
@@ -1441,6 +1474,19 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     shift = true;
     refreshFromLastPointer();
   });
+  // Move tool: a tap on Ctrl (pressed and released alone, so not Ctrl+Z etc.) toggles copying.
+  window.addEventListener('keydown', (e) => { if (e.key === 'Control') { if (!e.repeat) ctrlTap = true; } else ctrlTap = false; }, true);
+  window.addEventListener('pointerdown', () => { ctrlTap = false; }, true);
+  window.addEventListener('wheel', () => { ctrlTap = false; }, true);
+  window.addEventListener('blur', () => { ctrlTap = false; });
+  window.addEventListener('keyup', (e) => {
+    if (e.key !== 'Control') return;
+    const tap = ctrlTap;
+    ctrlTap = false;
+    if (!tap || tool !== 'move' || isTyping(e)) return;
+    setMoveCopy(!moveCopy);
+    updatePreview();
+  });
   window.addEventListener('keyup', (e) => {
     if (e.key !== 'Shift') return;
     shift = false;
@@ -1469,6 +1515,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
 
   function setTool(t) {
     cancel();
+    moveCopy = false;
     tool = t;
     hover = null;
     if (!['select', 'orbit', 'pan', 'move'].includes(t) && model.selection.size) model.select([]); // Move works on the selection

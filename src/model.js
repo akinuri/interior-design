@@ -781,6 +781,43 @@ export class Model {
     this.sync();
   }
 
+  /**
+   * Copies of the selected faces / edges, groups and measurements, in place, which become the
+   * selection (no history: the Move tool's copy mode, inside its own undo step). Returns their keys.
+   */
+  duplicateSelection() {
+    const keys = [];
+    const faces = this.selectedFaces, edges = this.selectedEdges;
+    if (faces.length || edges.length) {
+      // Fresh points, so the copy doesn't stick to the original while it's being placed.
+      const r = this.mesh.copyInto(this.mesh, faces, edges, { fresh: true });
+      keys.push(...r.faces.map((f) => `f${f}`), ...r.edges.map((e) => `e${e}`));
+    }
+    for (const id of this.selectedGroups) {
+      const nid = this.nextGroupId++;
+      this.groups.set(nid, { mesh: Mesh.fromData(this.groups.get(id).mesh.toData()) });
+      keys.push(`g${nid}`);
+    }
+    for (const id of this.selectedMeasurements) {
+      const it = this.measurements.find((x) => x.id === id);
+      const nid = this.nextMeasureId++;
+      this.measurements.push({ id: nid, a: it.a.clone(), b: it.b.clone() });
+      keys.push(`m${nid}`);
+    }
+    this.selection = new Set(keys);
+    return keys;
+  }
+
+  /** Take away what duplicateSelection made (no history). */
+  removeKeys(keys) {
+    const ids = (c) => keys.filter((k) => k[0] === c).map((k) => +k.slice(1));
+    const faces = ids('f'), edges = ids('e'), measures = new Set(ids('m'));
+    if (faces.length || edges.length) this.mesh.removeParts(faces, edges);
+    for (const id of ids('g')) this.groups.delete(id);
+    this.measurements = this.measurements.filter((m) => !measures.has(m.id));
+    keys.forEach((k) => this.selection.delete(k));
+  }
+
   /** Faces a colour change applies to: the selected faces and all faces of selected groups. */
   colorTargets() {
     const out = this.selectedFaces.filter((f) => this.mesh.faces.has(f)).map((f) => [this.mesh, f]);

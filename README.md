@@ -39,6 +39,7 @@ Then open the address it prints. A plain static server such as VS Code's Live Se
 | Line at 45° steps / square rectangle | Hold `Shift` while drawing |
 | Exact length / size / radius / distance | Type the value, then `Enter` |
 | Push / pull a face | Drag it, or click, move, click (`Esc` cancels) |
+| Copy while moving (the original stays) | Tap `Ctrl` (Move tool, before or during the move) |
 | Select a face or edge / with neighbours / everything connected | Click / double-click / triple-click (Select or Orbit tool) |
 | Select with a box: fully inside / touching | Drag left to right / right to left (Select tool) |
 | Add to / toggle in the selection, select all | `Ctrl`+click / `Shift`+click, `Ctrl+A` |

@@ -830,10 +830,12 @@ export class Mesh {
   /**
    * Copy faces and edges (ids in this mesh) into mesh `dst`; points merge with dst's.
    * Edge looks (soft, curve) come along. Returns the new ids in dst: { faces, edges }.
+   * `fresh`: new points even where dst already has one (a copy into the same mesh, kept apart).
    */
-  copyInto(dst, faceIds, edgeIds) {
+  copyInto(dst, faceIds, edgeIds, { fresh = false } = {}) {
     const vmap = new Map();
-    const v = (id) => { if (!vmap.has(id)) vmap.set(id, dst.addVertex(this.vertices.get(id))); return vmap.get(id); };
+    const newVertex = (p) => { const id = dst.nextId++; dst.vertices.set(id, p.clone()); dst.changed(); return id; };
+    const v = (id) => { if (!vmap.has(id)) vmap.set(id, fresh ? newVertex(this.vertices.get(id)) : dst.addVertex(this.vertices.get(id))); return vmap.get(id); };
     const cmap = new Map(); // curve ids are per mesh: give copied curves fresh ones
     const curveOf = (c) => { if (!cmap.has(c)) cmap.set(c, dst.nextId++); return cmap.get(c); };
     const faces = [], edges = new Set();
