@@ -77,9 +77,15 @@ export function setTip(el, text) {
  */
 export function showAllTips(on) {
   for (const t of allShown ?? []) {
-    t.setProps({ trigger: 'mouseenter focus', hideOnClick: true, offset: [0, 8] });
-    t.setContent(render(t.reference._tipText ?? ''));
-    t.hide();
+    // Back to the full text and usual place only once hidden: changing them during the fade-out
+    // shows the long text (in a jumping box) for a moment.
+    const restore = () => {
+      t.setContent(render(t.reference._tipText ?? ''));
+      t.setProps({ offset: [0, 8], onHidden() {} });
+    };
+    t.setProps({ trigger: 'mouseenter focus', hideOnClick: true, onHidden: restore });
+    if (t.state.isVisible) t.hide();
+    else restore();
   }
   allShown = null;
   if (!on) return false;
