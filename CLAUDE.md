@@ -19,7 +19,7 @@ README.md describes the features for users; this file is what you need to keep d
 - `model.js`: the scene state. Root mesh plus groups (separate meshes; one can be "entered" for editing),
   measurements, guides, materials, selection (keys `f<id>` face, `e<id>` edge, `g<id>` group, `m<id>`
   measurement, `u<id>` guide), undo (JSON snapshots, `checkpoint()` before an edit), rendering of meshes.
-- `tools.js`: all pointer / keyboard interaction (select, orbit, pan, line, rect, circle, push/pull, move,
+- `tools.js`: all pointer / keyboard interaction (select, orbit, pan, line, rect, circle, push/pull, offset, move,
   rotate, measure, person), snapping (`snap()` on a plane; `screenSnap()` / `pullSnap()` in screen space;
   `crossings()` for intersections), typed values, axis / edge-aligned locks.
 - `main.js`: UI wiring (cards, buttons, views, Home / Focus framing, shortcuts).
@@ -56,6 +56,9 @@ README.md describes the features for users; this file is what you need to keep d
   ~15° of horizontal) along the upright plane facing the camera. Locks: Shift (nearest axis; sticky like Measure's), `→`/`←` X/Z,
   `↑` vertical. Moves landing over 1 km away are ignored (one once flung a group 500,000 km; Home went blank).
   A tap on Ctrl (alone, not Ctrl+key) toggles copy mode, before or during a move; it resets after each move.
+- **Offset** (`I`; F is Focus): a face's outline, through the mouse (inside: face splits, holes grow; outside:
+  a ring face with the face's material). Mitred corners; stops at the last distance that doesn't cross itself.
+  Double-click repeats the last offset. Faces only (not edge chains).
 - **Rotate** (`K`; Q is Orbit): centre → start direction → angle (15° steps, corners exact, typed degrees). The
   protractor lies on the face under the mouse; `↑`/`→`/`←` lock Y/X/Z. The bounding box (world axes) shows
   handles only on the hovered side, all blue: a centre one (protractor placed, axis fixed) and four out from it
