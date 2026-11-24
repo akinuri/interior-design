@@ -615,6 +615,23 @@ export class Model {
     return mat.id;
   }
 
+  /**
+   * Give a material a new picture (one undo step): faces using it show the new one. A built-in
+   * becomes a picture material. One repeat stays as wide, its height from the picture's shape.
+   */
+  replaceMaterialImage(id, dataURL, aspect) {
+    const i = this.materials.findIndex((m) => m.id === id);
+    if (i < 0) return;
+    this.checkpoint();
+    // (The old picture stays in the table: undo goes back to it. Saving only writes pictures in use.)
+    const image = `img${this.nextImageId++}`;
+    this.images.set(image, dataURL);
+    const { builtin, ...rest } = this.materials[i];
+    const w = rest.size[0];
+    this.materials[i] = cleanMaterial({ ...rest, image, size: [w, w / (aspect > 0 ? aspect : 1)] });
+    this.sync();
+  }
+
   /** Change a material's settings. `live`: while dragging / typing (one undo step on the commit). */
   updateMaterial(id, patch, { live = false } = {}) {
     const i = this.materials.findIndex((m) => m.id === id);

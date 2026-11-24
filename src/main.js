@@ -386,6 +386,7 @@ function refreshMaterials() {
   const glass = isGlass(m);
   for (const id of ['mat-row-w', 'mat-row-h', 'mat-row-rot']) if (glass) $(id).hidden = true;
   $('mat-row-opacity').hidden = $('mat-opacity').hidden = !glass;
+  $('mat-replace').hidden = !m || glass; // (glass has no picture)
   // Brightness / contrast / saturation of the picture (not for glass: it has none).
   $('mat-adjust').hidden = !m || glass;
   if (m && !glass) {
@@ -491,6 +492,21 @@ for (const k of ADJUSTS) {
   // Double-click: back to as it is.
   el.addEventListener('dblclick', () => { el.value = '0'; model.updateMaterial(editingMaterial, patch(0)); });
 }
+// A new picture for the material (every face using it changes).
+$('mat-replace').addEventListener('click', () => {
+  const id = editingMaterial;
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    if (!file) return;
+    try {
+      const { dataURL, aspect } = await readImageFile(file);
+      model.replaceMaterialImage(id, dataURL, aspect);
+      refreshMaterials();
+    } catch { notify(t('mat.badImage', { name: file.name }), true); }
+  });
+  input.click();
+});
 $('mat-apply').addEventListener('click', () => {
   if (editingMaterial === 'default') model.applyDefaultMaterial(settings.color);
   else model.setSelectionMaterial(editingMaterial);
