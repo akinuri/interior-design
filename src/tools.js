@@ -1921,6 +1921,8 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       model.select([`g${faceHit.group}`], e.ctrlKey || e.metaKey ? 'add' : e.shiftKey ? 'toggle' : 'replace');
       return;
     }
+    // Isolated: a double-click on empty space (or on the faded rest) shows everything again.
+    if (!edgeHit && !faceHit && e.detail === 2 && model.isolation) { model.endIsolation(); return; }
     // Editing a group: a click on empty space (or on the faded rest) closes it.
     if (!edgeHit && !faceHit && model.activeGroup != null && !e.ctrlKey && !e.metaKey && !e.shiftKey) { model.exitGroup(); return; }
     if (e.altKey) {

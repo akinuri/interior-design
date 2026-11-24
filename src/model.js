@@ -320,6 +320,10 @@ export class Model {
     this.groups = new Map(); // id → { mesh, parent: id of the group it's in (subgroup) | null }
     this.nextGroupId = 1;
     this.activeGroup = null; // id of the group being edited, or null
+    // Isolation (a view setting: not in the history or files): what's faded out, per mesh ('root' or a
+    // group id): { faces: Map(key → Set), edges: Map(key → Set), groups: Set (wholly faded) }. What was
+    // there when isolating minus the isolated selection, so geometry made later shows.
+    this.isolation = null;
     this.measurements = []; // { id, a, b } (Measure tool), points in metres
     this.nextMeasureId = 1;
     this.measureView = createMeasureView(scene);
@@ -372,6 +376,61 @@ export class Model {
   contextGroupOf(id) {
     for (let k = id; k != null; k = this.groups.get(k)?.parent ?? null) if (this.groups.get(k)?.parent === this.activeGroup) return k;
     return null;
+  }
+
+  // --- isolation ---
+  /** A mesh's key in the isolation: 'root' or its group's id. */
+  meshKey(m) {
+    if (m === this.root) return 'root';
+    for (const [id, g] of this.groups) if (g.mesh === m) return id;
+    return null;
+  }
+  /** Is this face / edge ('f' / 'e') of the mesh with key `key` faded out by the isolation? */
+  isolatedOut(key, kind, id) { return !!this.isolation?.[kind === 'f' ? 'faces' : 'edges'].get(key)?.has(id); }
+
+  /**
+   * Isolate the selection: everything else fades out and can't be picked (like editing a group,
+   * for anything). Returns false with nothing selected.
+   */
+  isolate() {
+    if (!this.selection.size) return false;
+    const here = this.activeGroup ?? 'root';
+    const keep = new Set(); // groups shown whole: the selected ones with their subgroups
+    for (const g of this.selectedGroups) this.groupTree(g).forEach((k) => keep.add(k));
+    const keepFaces = new Set(this.selectedFaces), keepEdges = new Set(this.selectedEdges);
+    for (const f of keepFaces) if (this.mesh.faces.has(f)) this.mesh.faceEdges(f).forEach((e) => keepEdges.add(e)); // a face's own edges
+    const faces = new Map(), edges = new Map(), groups = new Set();
+    for (const [key, m] of [['root', this.root], ...[...this.groups].map(([id, g]) => [id, g.mesh])]) {
+      if (keep.has(key)) continue;
+      const mine = key === here;
+      faces.set(key, new Set([...m.faces.keys()].filter((f) => !(mine && keepFaces.has(f)))));
+      edges.set(key, new Set([...m.edges.keys()].filter((e) => !(mine && keepEdges.has(e)))));
+      if (key !== 'root' && !(mine && (keepFaces.size || keepEdges.size)) && ![...keep].some((k) => this.isWithin(k, key))) groups.add(key);
+    }
+    this.isolation = { faces, edges, groups };
+    this.selection = new Set(); // (what's shown is plain to see)
+    this.sync(false);
+    return true;
+  }
+
+  /** Points of what's isolated (shown, not faded), for framing; empty without isolation. */
+  isolatedPoints() {
+    if (!this.isolation) return [];
+    const out = [];
+    for (const [key, m] of [['root', this.root], ...[...this.groups].map(([id, g]) => [id, g.mesh])]) {
+      const ids = new Set();
+      for (const [f, face] of m.faces) if (!this.isolatedOut(key, 'f', f)) face.loops.flat().forEach((v) => ids.add(v));
+      for (const [e, edge] of m.edges) if (!this.isolatedOut(key, 'e', e)) { ids.add(edge.a); ids.add(edge.b); }
+      for (const v of ids) { const p = m.vertices.get(v); if (Number.isFinite(p.x + p.y + p.z)) out.push(p.clone()); }
+    }
+    return out;
+  }
+
+  /** Show everything again. */
+  endIsolation() {
+    if (!this.isolation) return;
+    this.isolation = null;
+    this.sync(false);
   }
 
   /** Separate pieces (connected geometry, each group counts as one): "objects" for messages. */
@@ -454,6 +513,7 @@ export class Model {
     this.root = new Mesh();
     this.groups.clear();
     this.activeGroup = null;
+    this.isolation = null;
     this.measurements = [];
     this.guides = [];
     this.selection.clear();
@@ -463,6 +523,7 @@ export class Model {
   /** Start over with data from a file (fresh undo history). Returns the object count. */
   replaceAll(data) {
     this.setData(data);
+    this.isolation = null;
     this.undoStack = [];
     this.redoStack = [];
     this.selection.clear();
@@ -742,18 +803,21 @@ export class Model {
       }
       return inside;
     };
+    const meKey = this.activeGroup ?? 'root';
     for (const [id, f] of m.faces) {
+      if (this.isolatedOut(meKey, 'f', id)) continue; // faded out: not pickable
       const loops = f.loops.map((l) => l.map((v) => s.get(v)));
       const segs = loops.flatMap((l) => l.map((p, i) => [p, l[(i + 1) % l.length]]));
       if (caught(loops.flat(), segs) || (crossing && holds(loops[0], mid) && !loops.slice(1).some((h) => holds(h, mid)))) keys.push(`f${id}`);
     }
     for (const [id, e] of m.edges) {
-      if (e.soft) continue;
+      if (e.soft || this.isolatedOut(meKey, 'e', id)) continue;
       const a = s.get(e.a), b = s.get(e.b);
       if (caught([a, b], [[a, b]])) keys.push(`e${id}`);
     }
     // Groups directly where you are, each with its subgroups.
     for (const id of this.childGroups(this.activeGroup)) {
+      if (this.isolation?.groups.has(id)) continue;
       const pts = [], segs = [];
       for (const gm of this.groupMeshes(id)) {
         const gs = screenOf(gm);
@@ -911,9 +975,11 @@ export class Model {
   }
 
   selectAll() {
-    const groups = this.childGroups(this.activeGroup).map((g) => `g${g}`);
+    const here = this.activeGroup ?? 'root';
+    const groups = this.childGroups(this.activeGroup).filter((g) => !this.isolation?.groups.has(g)).map((g) => `g${g}`);
     const measures = this.activeGroup == null ? [...this.measurements.map((m) => `m${m.id}`), ...this.guides.map((g) => `u${g.id}`)] : [];
-    this.select([...[...this.mesh.faces.keys()].map((f) => `f${f}`), ...[...this.mesh.edges.keys()].map((e) => `e${e}`), ...groups, ...measures]);
+    const faces = [...this.mesh.faces.keys()].filter((f) => !this.isolatedOut(here, 'f', f)), edges = [...this.mesh.edges.keys()].filter((e) => !this.isolatedOut(here, 'e', e));
+    this.select([...faces.map((f) => `f${f}`), ...edges.map((e) => `e${e}`), ...groups, ...measures]);
   }
 
   deleteSelection() {
@@ -1109,8 +1175,9 @@ export class Model {
     const toScreen = (p) => { const v = p.clone().project(camera); return { x: (v.x + 1) / 2 * size.x, y: (1 - v.y) / 2 * size.y, z: v.z }; };
     const mouse = { x: (ndc.x + 1) / 2 * size.x, y: (1 - ndc.y) / 2 * size.y };
     const near = [];
+    const here = this.activeGroup ?? 'root';
     for (const [id, e] of this.mesh.edges) {
-      if (e.soft || (only && !only.has(id))) continue;
+      if (e.soft || (only && !only.has(id)) || this.isolatedOut(here, 'e', id)) continue;
       const A = this.mesh.vertices.get(e.a), B = this.mesh.vertices.get(e.b);
       const a = toScreen(A), b = toScreen(B);
       if (a.z > 1 || b.z > 1 || a.z < -1 || b.z < -1) continue;
@@ -1217,10 +1284,10 @@ export class Model {
     // Editing a group: it and what's in it as usual, everything else faded. Its subgroups are
     // picked whole (as groups are at the top level).
     const editingGroup = this.activeGroup != null;
-    this.renderMesh(this.root, { active: !editingGroup, faded: editingGroup });
+    this.renderMesh(this.root, { active: !editingGroup, faded: editingGroup, key: 'root' });
     for (const [id, g] of this.groups) {
       const isActive = id === this.activeGroup;
-      this.renderMesh(g.mesh, { active: isActive, faded: !this.isWithin(id, this.activeGroup), groupId: isActive ? null : this.contextGroupOf(id) });
+      this.renderMesh(g.mesh, { active: isActive, faded: !this.isWithin(id, this.activeGroup), groupId: isActive ? null : this.contextGroupOf(id), key: id });
     }
     // Selected groups: a blue box around each.
     const boxPos = [];
@@ -1257,7 +1324,10 @@ export class Model {
    * `faded`: drawn faintly (while editing another group); `groupId`: a closed group,
    * pickable as a whole.
    */
-  renderMesh(m, { active, faded, groupId = null }) {
+  renderMesh(m, { active, faded, groupId = null, key = null }) {
+    // Faded: the whole mesh (editing another group), or single faces / edges (isolation).
+    const offF = (id) => faded || this.isolatedOut(key, 'f', id);
+    const offE = (id) => faded || this.isolatedOut(key, 'e', id);
 
     // Smooth groups: faces joined through soft edges share vertex normals.
     const group = new Map();
@@ -1283,20 +1353,21 @@ export class Model {
       }
     }
 
-    // One bucket per (on the ground or not) × (material); textured ones get texture coordinates.
+    // One bucket per (on the ground or not) × (material) × (faded or not); textured ones get texture coordinates.
     const buckets = new Map();
-    const bucketFor = (ground, mat) => {
-      const key = `${ground ? 'g' : 'n'}|${mat?.id ?? ''}`;
-      if (!buckets.has(key)) buckets.set(key, { ground, mat, pos: [], nor: [], col: [], sel: [], uv: [], ids: [] });
-      return buckets.get(key);
+    const bucketFor = (ground, mat, off) => {
+      const k = `${ground ? 'g' : 'n'}|${mat?.id ?? ''}|${off ? 'f' : ''}`;
+      if (!buckets.has(k)) buckets.set(k, { ground, mat, off, pos: [], nor: [], col: [], sel: [], uv: [], ids: [] });
+      return buckets.get(k);
     };
     const color = new THREE.Color();
     for (const [id, f] of m.faces) {
       const n = normals.get(id);
       const flatOnGround = Math.abs(n.y) > 0.999 && f.loops[0].every((v) => onGround(m.vertices.get(v)));
       const mat = f.material ? this.materialById(f.material) : null;
-      const tex = mat && !faded ? textureOf(mat, this.images) : null;
-      const b = bucketFor(flatOnGround, tex ? mat : null);
+      const off = offF(id);
+      const tex = mat && !off ? textureOf(mat, this.images) : null;
+      const b = bucketFor(flatOnGround, tex ? mat : null, off);
       const g = find(id);
       const soft = groupSize.get(g) > 1;
       color.set(tex ? mat.color : f.color); // textured: the material's tint
@@ -1336,26 +1407,26 @@ export class Model {
       geo.setAttribute('aSelected', new THREE.Float32BufferAttribute(b.sel, 1));
       if (b.mat) geo.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
       geo.computeBoundingSphere();
-      const material = faded ? fadedFaceMat
+      const material = b.off ? fadedFaceMat
         : b.mat ? texturedMaterial(b.mat, b.ground, textureOf(b.mat, this.images))
           : b.ground ? groundFaceMat : faceMat;
       const mesh = new THREE.Mesh(geo, material);
-      const glass = !faded && isGlass(b.mat);
-      mesh.castShadow = !b.ground && !faded && !glass; // light goes through glass
-      mesh.receiveShadow = !faded;
+      const glass = !b.off && isGlass(b.mat);
+      mesh.castShadow = !b.ground && !b.off && !glass; // light goes through glass
+      mesh.receiveShadow = !b.off;
       mesh.userData = { faceIds: b.ids, groupId, mesh: m };
-      if (faded || glass) mesh.userData.noAO = true; // (AO would darken what's seen through it)
+      if (b.off || glass) mesh.userData.noAO = true; // (AO would darken what's seen through it)
       this.group.add(mesh);
-      if (!faded) this.pickables.push(mesh);
+      if (!b.off) this.pickables.push(mesh);
     }
 
-    const edgePos = [], linePos = [], selEdgePos = [];
+    const edgePos = [], linePos = [], selEdgePos = [], offPos = [];
     for (const [id, e] of m.edges) {
       const A = m.vertices.get(e.a), B = m.vertices.get(e.b);
       const seg = [A.x, A.y, A.z, B.x, B.y, B.z];
       if (e.soft) continue; // smooth edges stay hidden, selected or not
       if (active && this.selection.has(`e${id}`)) selEdgePos.push(...seg);
-      (m.facesOfEdge(id).length ? edgePos : linePos).push(...seg);
+      (offE(id) ? offPos : m.facesOfEdge(id).length ? edgePos : linePos).push(...seg);
     }
     const addLines = (pos, mat, order = 0) => {
       if (!pos.length) return;
@@ -1366,8 +1437,9 @@ export class Model {
       lines.renderOrder = order;
       this.group.add(lines);
     };
-    addLines(edgePos, faded ? fadedEdgeMat : edgeMat);
-    addLines(linePos, faded ? fadedEdgeMat : lineMat);
+    addLines(edgePos, edgeMat);
+    addLines(linePos, lineMat);
+    addLines(offPos, fadedEdgeMat);
     if (selEdgePos.length) {
       const sel = new LineSegments2(new LineSegmentsGeometry().setPositions(selEdgePos), selEdgeMat);
       sel.raycast = () => {};

@@ -732,8 +732,10 @@ function focusView() {
     notePts.push(ref.clone(), g.p.clone().addScaledVector(g.d, ref.clone().sub(g.p).dot(g.d) / g.d.lengthSq()));
   }
   const some = ids.size || groupPts.length || notePts.length;
-  const pts = (some ? [...[...ids].map((v) => m.vertices.get(v).clone()), ...groupPts, ...notePts] : model.allPoints()).filter((v) => Number.isFinite(v.x + v.y + v.z));
-  if (!some) {
+  // Nothing selected: what's isolated (if anything), else the whole scene.
+  const iso = !some ? model.isolatedPoints() : [];
+  const pts = (some ? [...[...ids].map((v) => m.vertices.get(v).clone()), ...groupPts, ...notePts] : iso.length ? iso : model.allPoints()).filter((v) => Number.isFinite(v.x + v.y + v.z));
+  if (!some && !iso.length) {
     const p = person.getState();
     if (p.placed) pts.push(new THREE.Vector3(p.x, p.y, p.z), new THREE.Vector3(p.x, p.y + p.height, p.z));
   }
@@ -752,6 +754,12 @@ function focusView() {
   flyTo(center.clone().addScaledVector(dir, dist), center.clone(), zoom, { duration: 0.7, easeInOut: true });
 }
 $('focus').addEventListener('click', focusView);
+// Isolate: the selection alone (the rest faded, not pickable); again: show all.
+$('isolate').addEventListener('click', () => {
+  if (model.isolation) model.endIsolation();
+  else if (!model.isolate()) notify(t('msg.isolateNothing'));
+});
+model.onChange(() => $('isolate').classList.toggle('active', !!model.isolation));
 
 /**
  * Home: default 3D angle, framing everything in the scene (shapes, lines + person).
