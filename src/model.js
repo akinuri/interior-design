@@ -846,6 +846,37 @@ export class Model {
     this.sync();
   }
 
+  /**
+   * Take the selected faces / edges and subgroups out of the group being edited, into the one
+   * around it (or the top level); `toWorld`: out of all groups. One undo step. Editing goes out
+   * with them, and they stay selected.
+   */
+  moveOutOfGroup({ toWorld = false } = {}) {
+    const id = this.activeGroup;
+    const faces = this.selectedFaces, edges = this.selectedEdges, groups = this.selectedGroups;
+    if (id == null || (!faces.length && !edges.length && !groups.length)) return;
+    this.checkpoint();
+    const parent = toWorld ? null : this.groups.get(id).parent;
+    const outer = parent != null ? this.groups.get(parent).mesh : this.root;
+    const keys = [];
+    if (faces.length || edges.length) {
+      const r = this.mesh.copyInto(outer, faces, edges);
+      this.mesh.removeParts(faces, edges);
+      keys.push(...r.faces.map((f) => `f${f}`), ...r.edges.map((e) => `e${e}`));
+    }
+    for (const g of groups) { this.groups.get(g).parent = parent; keys.push(`g${g}`); }
+    this.activeGroup = parent;
+    // Groups left with nothing in them go away (the one emptied, and the ones around it it was all of).
+    for (let k = id; k != null && k !== parent;) {
+      const g = this.groups.get(k);
+      if (g.mesh.edges.size || this.childGroups(k).length) break;
+      this.groups.delete(k);
+      k = g.parent;
+    }
+    this.selection = new Set(keys);
+    this.sync();
+  }
+
   /** Edit a group's geometry (everything else fades out). */
   enterGroup(id) {
     if (!this.groups.has(id)) return;

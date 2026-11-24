@@ -320,6 +320,8 @@ $('sel-delete').addEventListener('click', () => model.deleteSelection());
 $('sel-reverse').addEventListener('click', () => model.reverseSelection());
 $('sel-group').addEventListener('click', () => model.groupSelection());
 $('sel-ungroup').addEventListener('click', () => model.ungroupSelection());
+$('sel-leavegroup').addEventListener('click', () => model.moveOutOfGroup());
+$('sel-toworld').addEventListener('click', () => model.moveOutOfGroup({ toWorld: true }));
 for (const b of document.querySelectorAll('[data-bool]')) {
   b.addEventListener('click', () => {
     const why = model.booleanSelection(b.dataset.bool);
@@ -555,6 +557,7 @@ function refreshUI() {
   if (anything) {
     $('sel-group').hidden = !faces.length && !edges.length && !groups.length; // (groups: into a new one around them)
     $('sel-ungroup').hidden = !groups.length;
+    $('sel-leave').hidden = model.activeGroup == null || (!faces.length && !edges.length && !groups.length);
     $('sel-bool').hidden = !(groups.length === 2 && model.selection.size === 2);
     $('sel-editgroup').hidden = groups.length !== 1;
     document.querySelector('.sel-helpers').hidden = !faces.length && !edges.length;
