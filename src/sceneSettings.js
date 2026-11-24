@@ -104,8 +104,14 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
     // Sky off: the dome shows one plain background colour (no gradient, no sun glow).
     // (Painting the dome rather than using scene.background keeps the colour exact
     // through the post-processing.)
+    // Light bounced up from below (it's all a ceiling gets): neutral and a bit cool (the sky's
+    // horizon), somewhat brighter than the ground. There's no real bounce off a room's own sunlit
+    // floor and walls, and the ground's own hue made white ceilings look painted beige / grey.
+    const bounce = new THREE.Color(v.ground);
+    const lum = bounce.r * 0.2126 + bounce.g * 0.7152 + bounce.b * 0.0722; // (linear values)
+    bounce.setRGB(lum, lum, lum).lerp(white, 0.3).lerp(new THREE.Color(v.skyVisible ? v.horizon : v.background), 0.25);
     if (v.skyVisible) {
-      skyDome.setColors(v.skyTop, v.horizon, v.ground);
+      skyDome.setColors(v.skyTop, v.horizon, bounce);
       skyDome.setGlow(true);
     } else {
       skyDome.setPlain(v.background, v.exposure);
@@ -119,9 +125,9 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
     ground.gridColor.set(v.gridColor);
     ground.setFadeDistance(v.gridFade);
 
-    // Ambient light: bluish from above, earth-coloured bounce from below.
+    // Ambient light: bluish from above, the neutral bounce from below.
     skyLight.color.set(v.skyTop).lerp(white, 0.65);
-    skyLight.groundColor.set(v.ground);
+    skyLight.groundColor.copy(bounce);
     // With realism off, the bounce light is folded into the flat fill so overall
     // brightness stays about the same.
     // View shading: part of the flat ambient light moves into a light shining from
