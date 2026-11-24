@@ -71,6 +71,9 @@ README.md describes the features for users; this file is what you need to keep d
   (`activeGroup`) decides what picks whole: the groups directly in it (`contextGroupOf`). Make group works inside a
   group and on selected groups (wraps them); Ungroup hands subgroups to the level above; Esc / Close leaves one level.
   Move / Rotate / copy / delete / materials take subgroups along (`groupMeshes`, `groupTree`).
+- **Isolate** (button next to Focus): the selection alone, the rest faded and unpickable. Stores what's faded (so new
+  geometry shows); view-only (not undo / files). Ends by the button or a double-click on empty space; Focus with
+  nothing selected frames what's isolated. Esc doesn't end it (not asked).
 - **Booleans**: two closed groups selected → Union / Subtract / Intersect. Subtract cuts the *first selected*
   out of the other (SketchUp). Result is one group; cut faces take the cutter's colour / material.
 - **Esc** repeatedly: cancel → leave eye view → deselect → leave group → Select tool.
