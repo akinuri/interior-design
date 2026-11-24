@@ -4,7 +4,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { Mesh, shapesToMesh, cleanTex } from './mesh.js';
 import { createMeasureView, createGuideView } from './measurements.js';
-import { textureOf, isGlass, GLASS_OPACITY, unitsOf, ADJUSTS } from './materials.js';
+import { textureOf, isGlass, hasPicture, GLASS_OPACITY, unitsOf, ADJUSTS } from './materials.js';
 import { booleanOp, isSolid } from './boolean.js';
 
 /*
@@ -23,6 +23,8 @@ const STORAGE_KEY = 'interior-design.model.v2';
 const LEGACY_SHAPES_KEY = 'interior-design.model.v1';
 const LEGACY_WALLS_KEY = 'interior-design.walls.v1';
 export const DEFAULT_COLOR = '#ffffff';
+/** The material faces have when they name none: always there, can't be deleted. */
+export const DEFAULT_MATERIAL = 'default';
 export const CIRCLE_SEGMENTS = 48;
 const onGround = (p) => Math.abs(p.y) < 1e-4;
 
@@ -138,12 +140,12 @@ function wallsToShapes(walls) {
 }
 
 /** A mesh from any saved form: { geometry } (now), { shapes, lines } (v3), { walls } (v1/v2). */
-function meshFromData(data) {
+function meshFromData(data, materialOf) {
   if (data?.geometry) return Mesh.fromData(data.geometry);
   const shapes = [
     ...(Array.isArray(data?.shapes) ? data.shapes.map(cleanShape).filter(Boolean) : []),
     ...wallsToShapes(data?.walls),
-  ];
+  ].map((s) => ({ ...s, material: materialOf(s.color) }));
   const lines = Array.isArray(data?.lines) ? data.lines.map(cleanLine).filter(Boolean) : [];
   return shapesToMesh(shapes, lines, profileOf);
 }
@@ -327,7 +329,9 @@ export class Model {
     this.measurements = []; // { id, a, b } (Measure tool), points in metres
     this.nextMeasureId = 1;
     this.measureView = createMeasureView(scene);
-    this.materials = []; // { id, name, color, builtin? | image?, size: [w, h] m, rotation, offset: [x, y] m } (see materials.js)
+    // { id, name, color, builtin? | image?, size: [w, h] m, rotation, adjust? } (see materials.js); no picture: a plain colour.
+    // The default material (what faces without one show) is always the first.
+    this.materials = [cleanMaterial({ id: DEFAULT_MATERIAL, name: 'Default', color: DEFAULT_COLOR })];
     this.images = new Map(); // image id → data URL (kept out of the undo history)
     this.nextMaterialId = 1;
     this.nextImageId = 1;
@@ -550,12 +554,47 @@ export class Model {
 
   /** Load saved data (any version; groups since they exist). */
   setData(data) {
-    this.root = meshFromData(data);
+    this.materials = [];
+    this.images = new Map();
+    this.nextMaterialId = 1;
+    this.nextImageId = 1;
+    for (const m of Array.isArray(data?.materials) ? data.materials : []) {
+      if (typeof m?.id !== 'string' || this.materialById(m.id)) continue;
+      const mat = cleanMaterial(m);
+      if (typeof m.image === 'string' && m.image.startsWith('data:image/')) {
+        mat.image = `img${this.nextImageId++}`;
+        this.images.set(mat.image, m.image);
+      }
+      this.materials.push(mat);
+      const n = parseInt(mat.id.replace(/\D/g, ''), 10);
+      if (Number.isFinite(n)) this.nextMaterialId = Math.max(this.nextMaterialId, n + 1);
+    }
+    // Faces used to have their own colour. Older files: the colour new faces got becomes the
+    // default material; every other colour a plain-colour material (one per colour).
+    const oldDefault = [data?.newShapes?.color, data?.newWalls?.color].find((c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)) ?? DEFAULT_COLOR;
+    if (!this.materialById(DEFAULT_MATERIAL)) this.materials.unshift(cleanMaterial({ id: DEFAULT_MATERIAL, name: 'Default', color: oldDefault }));
+    else this.materials = [this.materialById(DEFAULT_MATERIAL), ...this.materials.filter((m) => m.id !== DEFAULT_MATERIAL)];
+    const byColor = new Map();
+    const materialOf = (color) => {
+      if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color) || color.toLowerCase() === oldDefault.toLowerCase()) return null;
+      const c = color.toLowerCase();
+      if (!byColor.has(c)) {
+        const mat = cleanMaterial({ id: `mat${this.nextMaterialId++}`, name: c, color: c });
+        this.materials.push(mat);
+        byColor.set(c, mat.id);
+      }
+      return byColor.get(c);
+    };
+    const upgrade = (geo) => (Array.isArray(geo?.faces)
+      ? { ...geo, faces: geo.faces.map((f) => (f && !f.material && f.color ? { ...f, material: materialOf(f.color) } : f)) }
+      : geo);
+
+    this.root = meshFromData(data?.geometry ? { ...data, geometry: upgrade(data.geometry) } : data, materialOf);
     this.groups = new Map();
     this.nextGroupId = 1;
     // Subgroups: `parent` is the index of the group they're in. A bad one (missing, itself, a
     // loop) puts the group at the top level. Kept: groups with geometry, and groups holding some.
-    const list = (Array.isArray(data?.groups) ? data.groups : []).map((g) => ({ mesh: Mesh.fromData(g?.geometry), parent: g?.parent }));
+    const list = (Array.isArray(data?.groups) ? data.groups : []).map((g) => ({ mesh: Mesh.fromData(upgrade(g?.geometry)), parent: g?.parent }));
     for (const [i, g] of list.entries()) {
       if (!Number.isInteger(g.parent) || g.parent < 0 || g.parent >= list.length || g.parent === i) g.parent = null;
     }
@@ -575,22 +614,6 @@ export class Model {
       const a = point(m?.a), b = point(m?.b);
       if (a && b) this.measurements.push({ id: this.nextMeasureId++, a, b });
     }
-    this.materials = [];
-    this.images = new Map();
-    this.nextMaterialId = 1;
-    this.nextImageId = 1;
-    for (const m of Array.isArray(data?.materials) ? data.materials : []) {
-      if (typeof m?.id !== 'string') continue;
-      const mat = cleanMaterial(m);
-      if (typeof m.image === 'string' && m.image.startsWith('data:image/')) {
-        mat.image = `img${this.nextImageId++}`;
-        this.images.set(mat.image, m.image);
-      }
-      if (!mat.builtin && !mat.image) continue;
-      this.materials.push(mat);
-      const n = parseInt(mat.id.replace(/\D/g, ''), 10);
-      if (Number.isFinite(n)) this.nextMaterialId = Math.max(this.nextMaterialId, n + 1);
-    }
     this.guides = [];
     this.nextGuideId = 1;
     for (const g of Array.isArray(data?.guides) ? data.guides : []) {
@@ -601,8 +624,13 @@ export class Model {
 
   // --- materials ---
   materialById(id) { return this.materials.find((m) => m.id === id) ?? null; }
+  /** A face's material (none, or one that's gone: the default). */
+  faceMaterial(face) { return (face.material && this.materialById(face.material)) || this.materialById(DEFAULT_MATERIAL); }
 
-  /** Add a material (one undo step): { name, builtin } or { name, imageDataURL }, size, color, rotation. Returns its id. */
+  /**
+   * Add a material (one undo step): { name, builtin } or { name, imageDataURL }, or just a name
+   * and colour (a plain colour); size, color, rotation. Returns its id.
+   */
   addMaterial({ name, builtin = null, imageDataURL = null, size, color = '#ffffff', rotation = 0 }) {
     this.checkpoint();
     const mat = cleanMaterial({ id: `mat${this.nextMaterialId++}`, name, builtin, size, color, rotation });
@@ -645,27 +673,28 @@ export class Model {
     this.sync(!live);
   }
 
-  /** Remove a material (one undo step); faces using it go back to their colour. */
+  /** Remove a material (one undo step); faces using it get the default one (which stays). */
   deleteMaterial(id) {
+    if (id === DEFAULT_MATERIAL) return;
     this.checkpoint();
     this.materials = this.materials.filter((m) => m.id !== id);
     for (const mesh of this.meshes) for (const f of mesh.faces.values()) if (f.material === id) delete f.material;
     this.sync();
   }
 
-  /** The selected faces' material: an id, '' for none, null if mixed, undefined without faces. */
+  /** The selected faces' material: an id, null if mixed, undefined without faces. */
   selectionMaterial() {
     const t = this.colorTargets();
     if (!t.length) return undefined;
-    const ids = new Set(t.map(([m, f]) => m.faces.get(f).material ?? ''));
+    const ids = new Set(t.map(([m, f]) => this.faceMaterial(m.faces.get(f)).id));
     return ids.size === 1 ? [...ids][0] : null;
   }
 
   /** Selected faces (also of selected groups) with a pattern to place: a texture that isn't glass. */
   texTargets() {
     return this.colorTargets().filter(([m, f]) => {
-      const mat = this.materialById(m.faces.get(f).material);
-      return mat && !isGlass(mat);
+      const mat = this.faceMaterial(m.faces.get(f));
+      return hasPicture(mat) && !isGlass(mat);
     });
   }
 
@@ -678,7 +707,7 @@ export class Model {
     const t = this.texTargets();
     if (!t.length) return undefined;
     const vals = t.map(([m, f]) => {
-      const face = m.faces.get(f), x = face.tex, mat = this.materialById(face.material);
+      const face = m.faces.get(f), x = face.tex, mat = this.faceMaterial(face);
       const size = x?.size ?? mat.size, u = unitsOf(mat);
       return { offsetX: x?.offset[0] ?? 0, offsetY: x?.offset[1] ?? 0, rotation: x?.rotation ?? 0, width: size[0] / u[0], height: size[1] / u[1] };
     });
@@ -700,7 +729,7 @@ export class Model {
     for (const [m, f] of t) {
       const face = m.faces.get(f);
       const cur = face.tex ?? { offset: [0, 0], rotation: 0 };
-      const mat = this.materialById(face.material), u = unitsOf(mat);
+      const mat = this.faceMaterial(face), u = unitsOf(mat);
       // A new width / height makes the size this face's own (the other side as it is now).
       const own = patch.width != null || patch.height != null;
       const size = cur.size ?? mat.size;
@@ -725,7 +754,7 @@ export class Model {
     for (const [m, f] of t) {
       const face = m.faces.get(f);
       const cur = face.tex ?? { offset: [0, 0], rotation: 0 };
-      const mat = this.materialById(face.material);
+      const mat = this.faceMaterial(face);
       // The face's corners in the texture's own (turned) directions, as the renderer lays it out.
       const plane = m.facePlane(f);
       const a = THREE.MathUtils.degToRad(mat.rotation + cur.rotation), cos = Math.cos(a), sin = Math.sin(a);
@@ -741,23 +770,14 @@ export class Model {
     this.sync();
   }
 
-  /** The default material on the selected faces / groups: no texture, the given colour (one undo step). */
-  applyDefaultMaterial(color) {
-    const t = this.colorTargets();
-    if (!t.length) return;
-    this.checkpoint();
-    for (const [m, f] of t) { const face = m.faces.get(f); delete face.material; face.color = color; }
-    this.sync();
-  }
-
-  /** Put a material (or none: null) on the selected faces / groups (one undo step). */
+  /** Put a material on the selected faces / groups (one undo step). */
   setSelectionMaterial(id) {
     const t = this.colorTargets();
     if (!t.length) return;
     this.checkpoint();
     for (const [m, f] of t) {
       const face = m.faces.get(f);
-      if (id) face.material = id; else delete face.material;
+      if (id && id !== DEFAULT_MATERIAL) face.material = id; else delete face.material; // (none = the default)
     }
     this.sync();
   }
@@ -1080,19 +1100,11 @@ export class Model {
     keys.forEach((k) => this.selection.delete(k));
   }
 
-  /** Faces a colour change applies to: the selected faces and all faces of selected groups. */
+  /** Faces a material change applies to: the selected faces and all faces of selected groups. */
   colorTargets() {
     const out = this.selectedFaces.filter((f) => this.mesh.faces.has(f)).map((f) => [this.mesh, f]);
     for (const id of this.selectedGroups) if (this.groups.has(id)) for (const m of this.groupMeshes(id)) for (const f of m.faces.keys()) out.push([m, f]);
     return out;
-  }
-
-  /** Live colour preview for the selected faces (no history; see commitColor). */
-  previewColor(color) {
-    const targets = this.colorTargets();
-    this.colorsBefore ??= targets.map(([m, f]) => [m, f, m.faces.get(f).color]);
-    for (const [m, f] of targets) m.faces.get(f).color = color;
-    this.sync(false);
   }
 
   /** Would filling the selected edges make a face? (A closed loop in one plane, not filled yet.) */
@@ -1110,10 +1122,10 @@ export class Model {
    * Fill the closed loops among the selected edges with faces (one undo step); the new faces
    * end up selected. Returns how many were made.
    */
-  makeFaces({ color, towards }) {
+  makeFaces({ towards }) {
     const edges = this.selectedEdges;
     this.checkpoint();
-    const made = this.mesh.makeFaces(edges, { color, towards });
+    const made = this.mesh.makeFaces(edges, { towards });
     if (!made.length) { this.dropCheckpoint(); return 0; }
     this.selection = new Set(made.map((f) => `f${f}`));
     this.sync();
@@ -1170,16 +1182,6 @@ export class Model {
   reverseSelection() {
     const faces = this.selectedFaces;
     if (faces.length) this.edit((m) => m.reverseFaces(faces));
-  }
-
-  /** Set the colour of the selected faces as one undo step. */
-  commitColor(color) {
-    // Put the previewed colours back first, so the undo step holds the old ones.
-    for (const [m, f, c] of this.colorsBefore ?? []) { const face = m.faces.get(f); if (face && c) face.color = c; }
-    this.colorsBefore = null;
-    this.checkpoint();
-    for (const [m, f] of this.colorTargets()) m.faces.get(f).color = color;
-    this.sync();
   }
 
   // --- queries ---
@@ -1408,13 +1410,13 @@ export class Model {
     for (const [id, f] of m.faces) {
       const n = normals.get(id);
       const flatOnGround = Math.abs(n.y) > 0.999 && f.loops[0].every((v) => onGround(m.vertices.get(v)));
-      const mat = f.material ? this.materialById(f.material) : null;
+      const mat = this.faceMaterial(f);
       const off = offF(id);
       const tex = mat && !off ? textureOf(mat, this.images) : null;
       const b = bucketFor(flatOnGround, tex ? mat : null, off);
       const g = find(id);
       const soft = groupSize.get(g) > 1;
-      color.set(tex ? mat.color : f.color); // textured: the material's tint
+      color.set(mat.color); // the material's colour (textured: its tint)
       // Texture laid flat on the face, at real size, aligned to the world (tiles line up across faces).
       let uvOf = null;
       if (tex) {
@@ -1505,6 +1507,8 @@ export class Model {
       data = read(LEGACY_SHAPES_KEY);
       if (!data) { const walls = read(LEGACY_WALLS_KEY); if (Array.isArray(walls)) data = { walls }; }
     }
+    // Saved before faces lost their own colour: the colour new faces got was a drawing setting.
+    if (data && !data.materials?.some?.((m) => m?.id === DEFAULT_MATERIAL)) data = { ...data, newShapes: { color: read('interior-design.drawing.v1')?.color } };
     try { this.setData(data); } catch { this.root = new Mesh(); this.groups = new Map(); }
   }
 }

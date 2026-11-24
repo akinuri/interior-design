@@ -7,7 +7,8 @@ import * as THREE from 'three';
  *   edges:    id → { a, b, soft?, curve? }
  *               soft  = hidden and smoothed across (the sides of a cylinder)
  *               curve = id shared by the segments of one drawn circle
- *   faces:    id → { loops: [outer, ...holes], color, material?, tex? }   (material: a material id, see model.js;
+ *   faces:    id → { loops: [outer, ...holes], material?, tex? }   (material: a material id, see model.js;
+ *             none = the default material; faces have no colour of their own, it's the material's;
  *             tex: where the texture sits on this face: { offset: [x, y] m, rotation deg, size? }, see cleanTex)
  *               each loop = vertex ids; the outer loop runs counter-clockwise around the
  *               face normal, holes clockwise. Every pair of neighbouring loop vertices has an edge.
@@ -150,7 +151,7 @@ export class Mesh {
       if (e.curve) out.push(e.curve);
       return out;
     });
-    const faces = [...this.faces.values()].map((f) => ({ loops: f.loops.map((l) => l.map((v) => idx.get(v))), color: f.color, ...(f.material ? { material: f.material } : {}), ...(f.tex ? { tex: f.tex } : {}) }));
+    const faces = [...this.faces.values()].map((f) => ({ loops: f.loops.map((l) => l.map((v) => idx.get(v))), ...(f.material ? { material: f.material } : {}), ...(f.tex ? { tex: f.tex } : {}) }));
     return { vertices, edges, faces };
   }
 
@@ -178,8 +179,7 @@ export class Mesh {
       if (!f || !Array.isArray(f.loops)) continue;
       const loops = f.loops.filter(Array.isArray).map((l) => l.map(vid));
       if (!loops.length || loops.some((l) => l.includes(null))) continue;
-      const color = typeof f.color === 'string' && /^#[0-9a-f]{6}$/i.test(f.color) ? f.color : '#ffffff';
-      m.addFace(loops, { color, material: typeof f.material === 'string' ? f.material : null, tex: f.tex });
+      m.addFace(loops, { material: typeof f.material === 'string' ? f.material : null, tex: f.tex });
     }
     m.splitCurves();
     return m;
@@ -253,7 +253,7 @@ export class Mesh {
    * Add a face. Loops are cleaned up and oriented to `normal` (default: the outer
    * loop's own winding). Missing edges are added. Returns the face id or null.
    */
-  addFace(loops, { normal, color = '#ffffff', material = null, tex = null } = {}) {
+  addFace(loops, { normal, material = null, tex = null } = {}) {
     const clean = loops.map((l) => {
       const out = [];
       for (const v of l) if (out.at(-1) !== v) out.push(v);
@@ -269,7 +269,7 @@ export class Mesh {
     for (const l of fixed) for (let i = 0; i < l.length; i++) this.addEdge(l[i], l[(i + 1) % l.length]);
     const id = this.nextId++;
     const place = cleanTex(tex);
-    this.faces.set(id, { loops: fixed, color, ...(material ? { material } : {}), ...(place ? { tex: place } : {}) });
+    this.faces.set(id, { loops: fixed, ...(material ? { material } : {}), ...(place ? { tex: place } : {}) });
     this.changed();
     return id;
   }
@@ -440,7 +440,7 @@ export class Mesh {
    *  - edges in `dissolve` between two faces facing the same way are removed (faces merge).
    * Returns the ids of the faces now in the plane.
    */
-  rebuildPlane(plane, { newEdges = new Set(), dissolve = new Set(), createFaces = false, color = '#ffffff', normal = null } = {}) {
+  rebuildPlane(plane, { newEdges = new Set(), dissolve = new Set(), createFaces = false, material = null, normal = null } = {}) {
     const onPlane = (v) => plane.has(this.vertices.get(v));
     const planeEdges = () => [...this.edges.keys()].filter((id) => { const e = this.edges.get(id); return onPlane(e.a) && onPlane(e.b); });
     const p2 = (v) => plane.to2D(this.vertices.get(v));
@@ -502,7 +502,7 @@ export class Mesh {
     // Old faces here (their outlines decide which regions are faces).
     const oldFaces = this.facesIn(plane).map((id) => {
       const f = this.faces.get(id);
-      return { id, color: f.color, material: f.material, tex: f.tex, side: Math.sign(this.faceNormal(id).dot(plane.n)), loops2D: f.loops.map((l) => l.map(p2)) };
+      return { id, material: f.material, tex: f.tex, side: Math.sign(this.faceNormal(id).dot(plane.n)), loops2D: f.loops.map((l) => l.map(p2)) };
     });
     // Edges also used by faces in other planes can't be dissolved.
     const usedElsewhere = (eid) => this.facesOfEdge(eid).some((fid) => !oldFaces.some((o) => o.id === fid));
@@ -597,12 +597,11 @@ export class Mesh {
         if (cover.length) {
           if (cover.some((o) => o.side > 0) && cover.some((o) => o.side < 0)) continue; // back to back: cancel
           r.side = cover[0].side;
-          r.color = cover[0].color;
           r.material = cover[0].material;
           r.tex = cover[0].tex;
         } else if (createFaces && r.outer.edges.some((id) => newEdges.has(id))) {
           r.side = normal && normal.dot(plane.n) < 0 ? -1 : 1;
-          r.color = color;
+          r.material = material;
         }
       }
       // 6. Dissolve edges between two faces facing the same way.
@@ -625,7 +624,7 @@ export class Mesh {
     for (const r of regions ?? []) {
       if (!r.side) continue;
       const n = plane.n.clone().multiplyScalar(r.side);
-      const fid = this.addFace([r.outer.verts, ...r.holes.map((h) => h.verts)], { normal: n, color: r.color, material: r.material, tex: r.tex });
+      const fid = this.addFace([r.outer.verts, ...r.holes.map((h) => h.verts)], { normal: n, material: r.material, tex: r.tex });
       if (fid != null) result.push(fid);
     }
     return result;
@@ -648,7 +647,7 @@ export class Mesh {
    * Add a closed outline (3D points on `plane`), splitting faces it crosses and
    * filling the regions it closes. `curve`: mark the edges as one curve (circles).
    */
-  addLoop(points, plane, { color, normal, curve = false } = {}) {
+  addLoop(points, plane, { material, normal, curve = false } = {}) {
     const vids = points.map((p) => this.addVertex(plane.project(p)));
     const curveId = curve ? this.nextId++ : undefined;
     const newEdges = new Set();
@@ -656,19 +655,19 @@ export class Mesh {
       const id = this.addEdge(vids[i], vids[(i + 1) % vids.length], curveId ? { curve: curveId } : undefined);
       if (id != null) newEdges.add(id);
     }
-    return this.rebuildPlane(plane, { newEdges, createFaces: true, color, normal });
+    return this.rebuildPlane(plane, { newEdges, createFaces: true, material, normal });
   }
 
   /**
    * Add one straight edge on `plane`. Returns true if it closed a region into a new face.
    */
-  addSegment(p, q, plane, { color, normal } = {}) {
+  addSegment(p, q, plane, { material, normal } = {}) {
     const a = this.addVertex(plane.project(p)), b = this.addVertex(plane.project(q));
     const id = this.addEdge(a, b);
     if (id == null) return false;
     const area = () => this.facesIn(plane).reduce((s, f) => s + this.faceArea(f), 0);
     const before = area();
-    this.rebuildPlane(plane, { newEdges: new Set([id]), createFaces: true, color, normal });
+    this.rebuildPlane(plane, { newEdges: new Set([id]), createFaces: true, material, normal });
     return area() > before + 1e-6; // closed something new (splitting a face doesn't add area)
   }
 
@@ -723,7 +722,7 @@ export class Mesh {
     else {
       // Stays as the base, facing away from the new part.
       this.deleteFace(fid);
-      this.addFace(loops, { normal: n.clone().multiplyScalar(-sign), color: face.color, material: face.material, tex: face.tex });
+      this.addFace(loops, { normal: n.clone().multiplyScalar(-sign), material: face.material, tex: face.tex });
     }
 
     const moved = new Map();
@@ -742,7 +741,7 @@ export class Mesh {
         const out = B.clone().sub(A).cross(n).normalize();
         if (attached) out.multiplyScalar(sign);
         const curve = edgeProps.get(`${a}>${b}`);
-        const side = this.addFace([[a, b, moved.get(b), moved.get(a)]], { normal: out, color: face.color, material: face.material });
+        const side = this.addFace([[a, b, moved.get(b), moved.get(a)]], { normal: out, material: face.material });
         addPlane(side);
         const top = this.edgeBetween(moved.get(a), moved.get(b));
         if (top != null && curve) this.edges.get(top).curve = topCurve(curve);
@@ -759,7 +758,7 @@ export class Mesh {
       }
     }
     const capLoops = loops.map((l) => l.map((v) => moved.get(v)));
-    const cap = this.addFace(capLoops, { normal: attached ? n : n.clone().multiplyScalar(sign), color: face.color, material: face.material, tex: face.tex });
+    const cap = this.addFace(capLoops, { normal: attached ? n : n.clone().multiplyScalar(sign), material: face.material, tex: face.tex });
     addPlane(cap);
 
     // Clean up: merge with coplanar neighbours, cancel faces that meet back to back.
@@ -880,7 +879,7 @@ export class Mesh {
     for (const fid of faceIds) {
       const f = this.faces.get(fid);
       if (!f) continue;
-      const nf = dst.addFace(f.loops.map((l) => l.map(v)), { normal: this.faceNormal(fid), color: f.color, material: f.material, tex: f.tex });
+      const nf = dst.addFace(f.loops.map((l) => l.map(v)), { normal: this.faceNormal(fid), material: f.material, tex: f.tex });
       if (nf != null) faces.push(nf);
       this.faceEdges(fid).forEach(copyEdge);
     }
@@ -939,7 +938,7 @@ export class Mesh {
    * Fill the closed loops among the given edges with faces (where there's none yet).
    * `towards`: a point the new faces should face (e.g. the camera). Returns the new face ids.
    */
-  makeFaces(edgeIds, { color, towards } = {}) {
+  makeFaces(edgeIds, { material, towards } = {}) {
     const created = [];
     for (const { edges, plane } of this.faceableGroups(edgeIds)) {
       const before = new Set(this.facesIn(plane));
@@ -947,7 +946,7 @@ export class Mesh {
       const normal = towards && plane.n.dot(towards.clone().sub(pt)) < 0 ? plane.n.clone().negate() : plane.n.clone();
       const area = () => this.facesIn(plane).reduce((s, f) => s + this.faceArea(f), 0);
       const a0 = area();
-      const faces = this.rebuildPlane(plane, { newEdges: new Set(edges), createFaces: true, color, normal });
+      const faces = this.rebuildPlane(plane, { newEdges: new Set(edges), createFaces: true, material, normal });
       if (area() > a0 + 1e-9) created.push(...faces.filter((f) => !before.has(f)));
     }
     return created;
@@ -1120,19 +1119,19 @@ export function shapesToMesh(shapes, lines, profileOf) {
   for (const s of shapes) {
     const P = profileOf(s);
     const base = s.base ?? 0, h = s.height ?? 0;
-    const color = s.color;
+    const material = s.material ?? null; // (older files' colours: made into materials, see model.js)
     const at = (y) => P.map((p) => m.addVertex(new THREE.Vector3(p.x, y, p.z)));
     const curve = s.kind === 'circle' ? m.nextId++ : undefined; // bottom rim
     const topCurve = s.kind === 'circle' ? m.nextId++ : undefined;
     const bottom = at(base);
     if (h < 1e-6) {
-      m.addFace([bottom], { normal: UP, color });
+      m.addFace([bottom], { normal: UP, material });
       if (curve) for (let i = 0; i < bottom.length; i++) m.edges.get(m.edgeBetween(bottom[i], bottom[(i + 1) % bottom.length])).curve = curve;
       continue;
     }
     const top = at(base + h);
-    m.addFace([bottom], { normal: UP.clone().negate(), color });
-    m.addFace([top], { normal: UP, color });
+    m.addFace([bottom], { normal: UP.clone().negate(), material });
+    m.addFace([top], { normal: UP, material });
     const c = P.reduce((acc, p) => ({ x: acc.x + p.x / P.length, z: acc.z + p.z / P.length }), { x: 0, z: 0 });
     for (let i = 0; i < P.length; i++) {
       const j = (i + 1) % P.length;
@@ -1140,7 +1139,7 @@ export function shapesToMesh(shapes, lines, profileOf) {
       let out = new THREE.Vector3(q.z - p.z, 0, -(q.x - p.x));
       const mid = new THREE.Vector3((p.x + q.x) / 2 - c.x, 0, (p.z + q.z) / 2 - c.z);
       if (s.kind === 'circle' && out.dot(mid) < 0) out.negate();
-      m.addFace([[bottom[i], bottom[j], top[j], top[i]]], { normal: out, color });
+      m.addFace([[bottom[i], bottom[j], top[j], top[i]]], { normal: out, material });
       if (curve) {
         m.edges.get(m.edgeBetween(bottom[i], bottom[j])).curve = curve;
         m.edges.get(m.edgeBetween(top[i], top[j])).curve = topCurve;

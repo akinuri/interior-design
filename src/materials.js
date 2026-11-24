@@ -113,6 +113,8 @@ const BUILTINS = {
   },
 };
 
+/** Does it have a picture (built-in or an image)? Without one it's a plain colour. */
+export const hasPicture = (mat) => !!(mat?.builtin || mat?.image);
 /** Is it glass (see-through, glossy; no texture size to set)? */
 export const isGlass = (mat) => mat?.builtin === 'glass';
 /** How opaque glass is by default (0 = invisible, 1 = solid). */

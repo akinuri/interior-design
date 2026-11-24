@@ -9,7 +9,7 @@ A simple 3D interior design app that runs in the browser. Draw flat shapes on an
 - **Push / Pull**: give a face depth. Pulling out adds, pushing in carves, and pushing through to the far side cuts a hole, e.g. a door: draw a rectangle on a wall, then push it through.
 - **Exact values**: type a number while drawing or pushing, then `Enter`. Lengths are in centimetres (e.g. `250` for a line, `400;300` for a rectangle); add a unit for others (`2.5m`, `25mm`).
 - **Measure and guides**: click two points to leave a measurement (line and label); start on an edge to make an infinite guide line parallel to it instead (type the offset). Drawing snaps to guides and where they cross. Measuring and lines snap to the X / Y / Z axes.
-- **Edit**: select faces and edges (double-click adds neighbours, triple-click everything connected), change their colour, or delete them. Designs from earlier versions (shapes, walls) are converted when opened.
+- **Edit**: select faces and edges (double-click adds neighbours, triple-click everything connected), give them a material, or delete them. Designs from earlier versions (shapes, walls) are converted when opened.
 - **Eye view**: place a person and see the room through their eyes. Walk around with WASD.
 - **Views**: orbit, top view and parallel (orthographic) projection.
 - **Scene and rendering settings**: sky, ground, sun, fog and grid, plus optional realistic rendering (soft shadows, corner shading, sky bounce light).

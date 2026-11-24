@@ -760,7 +760,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     typed = '';
   }
 
-  const drawOpts = () => ({ color: settings.color, normal: plane.n });
+  const drawOpts = () => ({ normal: plane.n }); // (new faces: the default material)
 
   function addChainPoint(p) {
     if (!p) return;
@@ -1836,7 +1836,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     const f = m.faces.get(o.fid);
     model.checkpoint();
     const before = new Set(m.faces.keys());
-    for (const loop of o.result) m.addLoop(loop, o.plane, { color: f.color, normal: o.plane.n, curve: o.curve });
+    for (const loop of o.result) m.addLoop(loop, o.plane, { material: f.material, normal: o.plane.n, curve: o.curve });
     // Outwards, the ring around the face is a new face: give it the face's material too. (Faces
     // split inside keep theirs.) It's the new face between the old outline and the new one.
     if (f.material && o.d < 0) {

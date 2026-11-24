@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createGround } from './grid.js';
-import { Model, DEFAULT_COLOR } from './model.js';
+import { Model, DEFAULT_MATERIAL } from './model.js';
 import { createSky } from './sky.js';
 import { createRenderPipeline } from './render.js';
 import { createSceneSettings, pickValid, changedFrom } from './sceneSettings.js';
 import { createTools, MIN_SIDES, MAX_SIDES } from './tools.js';
 import { cm, formatLength, formatArea } from './units.js';
-import { thumbnail, builtinSize, readImageFile, unitsOf, isGlass, GLASS_OPACITY, ADJUSTS, adjustFilter } from './materials.js';
+import { thumbnail, builtinSize, readImageFile, unitsOf, isGlass, hasPicture, GLASS_OPACITY, ADJUSTS, adjustFilter } from './materials.js';
 import { createPerson } from './person.js';
 import { createOrbitCenter } from './orbitCenter.js';
 import { createSideGrid } from './sideGrid.js';
@@ -106,7 +106,7 @@ environment.onApply((v) => faceStyleButtons.forEach((b) => b.classList.toggle('a
 
 // --- model & tools ---
 // Drawing settings (Drawing card), remembered and saved in designs when changed.
-const NEW_SHAPE_DEFAULTS = { color: DEFAULT_COLOR, circleSides: 48, snapping: true };
+const NEW_SHAPE_DEFAULTS = { circleSides: 48, snapping: true }; // (new faces: the default material)
 const DRAWING_KEY = 'interior-design.drawing.v1';
 const settings = { ...NEW_SHAPE_DEFAULTS, snap: 0.25 };
 try { Object.assign(settings, pickValid(NEW_SHAPE_DEFAULTS, JSON.parse(localStorage.getItem(DRAWING_KEY) ?? '{}'))); } catch { /* ignore */ }
@@ -332,43 +332,24 @@ $('sel-editgroup').addEventListener('click', () => model.enterGroup(model.select
 $('group-close').addEventListener('click', () => model.exitGroup());
 $('sel-close').addEventListener('click', () => model.select([]));
 
-$('set-color').value = settings.color;
-$('set-color').addEventListener('input', (e) => { settings.color = e.target.value; saveDrawing(); refreshMaterials(); });
 tools.onSidesChange(saveDrawing); // circle sides: typed with the Circle tool, shown at the cursor
-
-// Face colour: preview live while the picker is open, commit one undo step on close.
-let pickingColor = false;
-$('sel-color').addEventListener('input', (e) => {
-  if (!model.colorTargets().length) return;
-  pickingColor = true;
-  model.previewColor(e.target.value);
-});
-$('sel-color').addEventListener('change', (e) => {
-  if (!pickingColor) return;
-  pickingColor = false;
-  model.commitColor(e.target.value);
-});
 
 // --- materials ---
 const signed = (pct) => (pct > 0 ? `+${pct}` : String(pct));
-let editingMaterial = null; // id shown in the Materials card editor ('default': the colour new faces get)
+let editingMaterial = null; // id shown in the Materials card editor
+/** A material's name as shown (the default one's in the UI language). */
+const matName = (m) => (m.id === DEFAULT_MATERIAL ? t('mat.default') : m.name);
 function refreshMaterials() {
   const list = $('mat-list');
-  // First the default material (plain colour for new faces), then the scene's materials.
-  const def = document.createElement('button');
-  def.type = 'button';
-  def.title = t('mat.default');
-  def.setAttribute('aria-label', t('mat.default'));
-  def.style.backgroundColor = settings.color;
-  def.classList.toggle('active', editingMaterial === 'default');
-  def.addEventListener('click', () => { editingMaterial = editingMaterial === 'default' ? null : 'default'; refreshMaterials(); });
-  list.replaceChildren(def, ...model.materials.map((m) => {
+  // The default material (what new faces get) comes first.
+  list.replaceChildren(...model.materials.map((m) => {
     const b = document.createElement('button');
     b.type = 'button';
-    b.title = m.name;
-    b.setAttribute('aria-label', m.name);
+    b.title = matName(m);
+    b.setAttribute('aria-label', matName(m));
     const pic = document.createElement('span');
-    pic.style.backgroundImage = `url("${thumbnail(m, model.images)}")`;
+    const thumb = thumbnail(m, model.images);
+    pic.style.backgroundImage = thumb ? `url("${thumb}")` : 'none';
     pic.style.backgroundColor = m.color;
     pic.style.filter = adjustFilter(m);
     b.append(pic);
@@ -376,20 +357,25 @@ function refreshMaterials() {
     b.addEventListener('click', () => { editingMaterial = editingMaterial === m.id ? null : m.id; refreshMaterials(); });
     return b;
   }));
-  const isDefault = editingMaterial === 'default';
   const m = model.materialById(editingMaterial);
-  if (!m && !isDefault) editingMaterial = null;
-  $('mat-edit').hidden = !m && !isDefault;
-  $('mat-row-default').hidden = !isDefault;
-  for (const id of ['mat-row-name', 'mat-row-tint', 'mat-row-w', 'mat-row-h', 'mat-row-rot', 'mat-delete']) $(id).hidden = isDefault;
+  if (!m) editingMaterial = null;
+  const isDefault = m?.id === DEFAULT_MATERIAL;
+  $('mat-edit').hidden = !m;
+  // A plain colour: just its colour (and a picture can be given to it). The default one keeps its name.
+  const plain = !!m && !hasPicture(m);
+  const tint = $('mat-tint-label');
+  tint.dataset.i18n = plain ? 'f.color' : 'mat.tint';
+  tint.textContent = t(tint.dataset.i18n);
+  $('mat-row-name').hidden = isDefault;
+  $('mat-delete').hidden = isDefault;
   // Glass: no pattern to size or turn; an opacity slider instead.
   const glass = isGlass(m);
-  for (const id of ['mat-row-w', 'mat-row-h', 'mat-row-rot']) if (glass) $(id).hidden = true;
+  for (const id of ['mat-row-w', 'mat-row-h', 'mat-row-rot']) $(id).hidden = glass || plain;
   $('mat-row-opacity').hidden = $('mat-opacity').hidden = !glass;
   $('mat-replace').hidden = !m || glass; // (glass has no picture)
-  // Brightness / contrast / saturation of the picture (not for glass: it has none).
-  $('mat-adjust').hidden = !m || glass;
-  if (m && !glass) {
+  // Brightness / contrast / saturation of the picture (not for glass or a plain colour: no picture).
+  $('mat-adjust').hidden = !m || glass || plain;
+  if (m && !glass && !plain) {
     for (const k of ADJUSTS) {
       const pct = Math.round((m.adjust?.[k] ?? 0) * 100);
       $(`mat-${k}-value`).textContent = signed(pct);
@@ -411,9 +397,9 @@ function refreshMaterials() {
   }
   // Selection card: the material dropdown.
   const sel = $('sel-material');
-  sel.replaceChildren(new Option(t('mat.none'), ''), ...model.materials.map((x) => new Option(x.name, x.id)));
+  sel.replaceChildren(...model.materials.map((x) => new Option(matName(x), x.id)));
   const state = model.selectionMaterial();
-  $('sel-row-material').hidden = state === undefined || (!model.materials.length && !state);
+  $('sel-row-material').hidden = state === undefined;
   if (state === null) sel.prepend(new Option(t('mat.mixed'), '__mixed'));
   sel.value = state === null ? '__mixed' : state ?? '';
   // Selection card: where the texture sits on the selected faces (blank where they differ).
@@ -436,6 +422,13 @@ $('mat-add').addEventListener('change', async (e) => {
   const kind = e.target.value;
   e.target.value = '';
   if (!kind) return;
+  if (kind === 'color') {
+    // A plain colour: numbered, a light grey to start from (its colour is picked in the editor).
+    const n = model.materials.filter((x) => !hasPicture(x) && x.id !== DEFAULT_MATERIAL).length + 1;
+    editingMaterial = model.addMaterial({ name: `${t('mat.b.color')} ${n}`, color: '#c8c8c8' });
+    refreshMaterials();
+    return;
+  }
   if (kind === 'image') {
     const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
     input.addEventListener('change', async () => {
@@ -508,12 +501,9 @@ $('mat-replace').addEventListener('click', () => {
   });
   input.click();
 });
-$('mat-apply').addEventListener('click', () => {
-  if (editingMaterial === 'default') model.applyDefaultMaterial(settings.color);
-  else model.setSelectionMaterial(editingMaterial);
-});
+$('mat-apply').addEventListener('click', () => model.setSelectionMaterial(editingMaterial));
 $('mat-delete').addEventListener('click', () => { model.deleteMaterial(editingMaterial); editingMaterial = null; refreshMaterials(); });
-$('sel-material').addEventListener('change', (e) => { if (e.target.value !== '__mixed') model.setSelectionMaterial(e.target.value || null); });
+$('sel-material').addEventListener('change', (e) => { if (e.target.value !== '__mixed') model.setSelectionMaterial(e.target.value); });
 
 // Guides: show / hide the offset label (the measurement back to the edge they came from).
 $('sel-glabel').addEventListener('change', (e) => model.setGuideLabel(e.target.checked));
@@ -522,7 +512,7 @@ $('sel-glabel').addEventListener('change', (e) => model.setGuideLabel(e.target.c
 document.querySelectorAll('[data-select]').forEach((b) => b.addEventListener('click', () => model.selectHelper(b.dataset.select)));
 // Make face: fill closed loops of selected edges.
 $('sel-makeface').addEventListener('click', () => {
-  if (!model.makeFaces({ color: settings.color, towards: camera.position.clone() })) notify(t('msg.noFace'));
+  if (!model.makeFaces({ towards: camera.position.clone() })) notify(t('msg.noFace'));
 });
 
 // Smooth slider: live while dragging, one undo step on release.
@@ -582,7 +572,6 @@ function refreshUI() {
     $('sel-size-label').dataset.i18n = key;
     $('sel-size-label').textContent = t(key);
     $('sel-size').textContent = text;
-    $('sel-row-color').hidden = !faces.length && !groups.length;
     $('sel-reverse').hidden = !faces.length;
     $('sel-makeface').hidden = !model.canMakeFace();
     const gl = model.guideLabelState();
@@ -597,8 +586,6 @@ function refreshUI() {
       $('sel-smooth').value = String(deg);
       showSmooth(deg);
     }
-    const first = model.colorTargets()[0];
-    if (first && !pickingColor) $('sel-color').value = first[0].faces.get(first[1]).color ?? DEFAULT_COLOR;
   }
   $('undo').disabled = !model.undoStack.length;
   $('redo').disabled = !model.redoStack.length;
@@ -906,9 +893,8 @@ function setScene(data) {
   syncGridInputs();
   applyGrid();
 
-  Object.assign(settings, pickValid(NEW_SHAPE_DEFAULTS, data.newShapes ?? data.newWalls)); // older files: wall colour
+  Object.assign(settings, pickValid(NEW_SHAPE_DEFAULTS, data.newShapes ?? data.newWalls)); // (their old colour: see model.setData)
   settings.circleSides = clampSides(settings.circleSides);
-  $('set-color').value = settings.color;
   saveDrawing();
 
   const fov = data.view?.fov;
