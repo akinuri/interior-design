@@ -476,6 +476,7 @@ for (const [id, [key, conv]] of Object.entries(TEX_INPUTS)) {
   $(id).addEventListener('change', () => { const p = read(); if (p) model.setSelectionTex(p); refreshMaterials(); });
 }
 $('tex-reset').addEventListener('click', () => model.setSelectionTex({}, { reset: true }));
+$('tex-fit').addEventListener('click', () => model.fitSelectionTex());
 $('mat-opacity').addEventListener('input', (e) => {
   $('mat-opacity-value').textContent = `${e.target.value}%`;
   model.updateMaterial(editingMaterial, { opacity: e.target.value / 100 }, { live: true });

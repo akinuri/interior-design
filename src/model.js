@@ -714,6 +714,33 @@ export class Model {
     this.sync(!live);
   }
 
+  /**
+   * Fit the texture to each selected face (one undo step): one repeat of it covers the face's
+   * outline exactly, as it's turned now (the face gets its own size and offset).
+   */
+  fitSelectionTex() {
+    const t = this.texTargets();
+    if (!t.length) return;
+    this.checkpoint();
+    for (const [m, f] of t) {
+      const face = m.faces.get(f);
+      const cur = face.tex ?? { offset: [0, 0], rotation: 0 };
+      const mat = this.materialById(face.material);
+      // The face's corners in the texture's own (turned) directions, as the renderer lays it out.
+      const plane = m.facePlane(f);
+      const a = THREE.MathUtils.degToRad(mat.rotation + cur.rotation), cos = Math.cos(a), sin = Math.sin(a);
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const v of face.loops[0]) {
+        const p = m.vertices.get(v), s = p.dot(plane.u), r = p.dot(plane.v);
+        const x = s * cos - r * sin, y = s * sin + r * cos;
+        x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+      }
+      const tex = cleanTex({ offset: [x0, y0], rotation: cur.rotation, size: [Math.max(0.01, x1 - x0), Math.max(0.01, y1 - y0)] });
+      if (tex) face.tex = tex; else delete face.tex;
+    }
+    this.sync();
+  }
+
   /** The default material on the selected faces / groups: no texture, the given colour (one undo step). */
   applyDefaultMaterial(color) {
     const t = this.colorTargets();

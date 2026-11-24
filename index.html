@@ -221,7 +221,10 @@
             <label><span data-i18n="tex.rotation">Texture turn (°)</span> <input id="tex-rot" type="number" step="15" /></label>
             <label><span data-i18n="tex.width">Texture width (cm)</span> <input id="tex-w" type="number" min="1" step="1" /></label>
             <label><span data-i18n="tex.height">Texture height (cm)</span> <input id="tex-h" type="number" min="1" step="1" /></label>
-            <button id="tex-reset" type="button" data-i18n="tex.reset" data-i18n-title="tex.reset.tip">Reset texture</button>
+            <div class="sel-pair">
+              <button id="tex-fit" type="button" data-i18n="tex.fit" data-i18n-title="tex.fit.tip">Fit to face</button>
+              <button id="tex-reset" type="button" data-i18n="tex.reset" data-i18n-title="tex.reset.tip">Reset texture</button>
+            </div>
           </div>
           <label id="sel-row-color"><span data-i18n="f.color">Color</span> <input id="sel-color" type="color" /></label>
           <div class="sel-helpers">

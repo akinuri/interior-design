@@ -254,7 +254,7 @@ button.icon.lang {
 /* Two buttons side by side (Move out / To world). */
 .sel-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .sel-pair[hidden] { display: none; }
-.panel .card-body .sel-pair button { min-width: 0; }
+.panel .card-body .sel-pair button { min-width: 0; padding-left: 4px; padding-right: 4px; }
 /* Texture placement (Selection card): its own block, set off by a divider. */
 .sel-tex { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 8px; }
 .sel-tex[hidden] { display: none; }
