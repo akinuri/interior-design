@@ -317,7 +317,7 @@ export class Model {
     this.group = new THREE.Group();
     scene.add(this.group);
     this.root = new Mesh(); // the geometry outside groups
-    this.groups = new Map(); // id → { mesh }
+    this.groups = new Map(); // id → { mesh, parent: id of the group it's in (subgroup) | null }
     this.nextGroupId = 1;
     this.activeGroup = null; // id of the group being edited, or null
     this.measurements = []; // { id, a, b } (Measure tool), points in metres
@@ -350,6 +350,30 @@ export class Model {
   /** All meshes: outside groups first, then each group's. */
   get meshes() { return [this.root, ...[...this.groups.values()].map((g) => g.mesh)]; }
 
+  // Groups nest (subgroups): each has a `parent`. Where you are (`activeGroup`, null outside all)
+  // decides what's picked as a whole: the groups directly in it.
+  /** Ids of the groups directly in group `id` (null: the top level). */
+  childGroups(id) { return [...this.groups].filter(([, g]) => g.parent === id).map(([k]) => k); }
+  /** A group and every group inside it, at any depth. */
+  groupTree(id) {
+    const out = [id];
+    for (let i = 0; i < out.length; i++) out.push(...this.childGroups(out[i]));
+    return out;
+  }
+  /** The meshes of a group and its subgroups. */
+  groupMeshes(id) { return this.groupTree(id).map((k) => this.groups.get(k).mesh); }
+  /** Is group `id` group `outer` or inside it (null: everything is)? */
+  isWithin(id, outer) {
+    if (outer == null) return true;
+    for (let k = id; k != null; k = this.groups.get(k)?.parent ?? null) if (k === outer) return true;
+    return false;
+  }
+  /** The group directly where you are that holds group `id` (itself or one around it), or null. */
+  contextGroupOf(id) {
+    for (let k = id; k != null; k = this.groups.get(k)?.parent ?? null) if (this.groups.get(k)?.parent === this.activeGroup) return k;
+    return null;
+  }
+
   /** Separate pieces (connected geometry, each group counts as one): "objects" for messages. */
   get count() {
     const m = this.root;
@@ -359,7 +383,7 @@ export class Model {
     for (const e of m.edges.values()) parent.set(find(e.a), find(e.b));
     // A face joins its holes to its outline (a box with a hole through it is one object).
     for (const f of m.faces.values()) for (const l of f.loops.slice(1)) parent.set(find(l[0]), find(f.loops[0][0]));
-    let n = this.groups.size;
+    let n = this.childGroups(null).length;
     for (const v of m.vertices.keys()) if (find(v) === v) n++;
     return n;
   }
@@ -373,7 +397,7 @@ export class Model {
 
   snapshot(extra) {
     const data = {
-      root: this.root.toData(), groups: [...this.groups].map(([id, g]) => [id, g.mesh.toData()]), active: this.activeGroup,
+      root: this.root.toData(), groups: [...this.groups].map(([id, g]) => [id, g.mesh.toData(), g.parent]), active: this.activeGroup,
       measurements: this.measurements.map((m) => [m.id, m.a.toArray(), m.b.toArray()]),
       guides: this.guides.map((g) => [g.id, g.p.toArray(), g.d.toArray(), { from: g.from?.toArray(), label: g.label }]),
       materials: this.materials,
@@ -389,7 +413,7 @@ export class Model {
   restore(step) {
     const data = JSON.parse(step.data);
     this.root = Mesh.fromData(data.root);
-    this.groups = new Map(data.groups.map(([id, g]) => [id, { mesh: Mesh.fromData(g) }]));
+    this.groups = new Map(data.groups.map(([id, g, parent]) => [id, { mesh: Mesh.fromData(g), parent: parent ?? null }]));
     this.nextGroupId = Math.max(this.nextGroupId, ...this.groups.keys(), 0) + 1;
     this.activeGroup = this.groups.has(data.active) ? data.active : null;
     this.measurements = data.measurements.map(([id, a, b]) => ({ id, a: new THREE.Vector3(...a), b: new THREE.Vector3(...b) }));
@@ -448,7 +472,9 @@ export class Model {
 
   /** Plain data for saving: the geometry outside groups, and each group's. */
   toData() {
-    const groups = [...this.groups.values()].map((g) => ({ geometry: g.mesh.toData() }));
+    // A subgroup names its group by its place in this list.
+    const index = new Map([...this.groups.keys()].map((id, i) => [id, i]));
+    const groups = [...this.groups.values()].map((g) => ({ geometry: g.mesh.toData(), ...(g.parent != null ? { parent: index.get(g.parent) } : {}) }));
     const r = (v) => v.toArray().map((x) => Math.round(x * 1e6) / 1e6);
     const measurements = this.measurements.map((m) => ({ a: r(m.a), b: r(m.b) }));
     const guides = this.guides.map((g) => ({ p: r(g.p), d: r(g.d), ...(g.from ? { from: r(g.from) } : {}), ...(g.label === false ? { label: false } : {}) }));
@@ -466,10 +492,20 @@ export class Model {
     this.root = meshFromData(data);
     this.groups = new Map();
     this.nextGroupId = 1;
-    for (const g of Array.isArray(data?.groups) ? data.groups : []) {
-      const mesh = Mesh.fromData(g?.geometry);
-      if (mesh.edges.size) this.groups.set(this.nextGroupId++, { mesh });
+    // Subgroups: `parent` is the index of the group they're in. A bad one (missing, itself, a
+    // loop) puts the group at the top level. Kept: groups with geometry, and groups holding some.
+    const list = (Array.isArray(data?.groups) ? data.groups : []).map((g) => ({ mesh: Mesh.fromData(g?.geometry), parent: g?.parent }));
+    for (const [i, g] of list.entries()) {
+      if (!Number.isInteger(g.parent) || g.parent < 0 || g.parent >= list.length || g.parent === i) g.parent = null;
     }
+    for (const g of list) {
+      const seen = new Set([g]);
+      for (let k = g.parent; k != null; k = list[k].parent) { if (seen.has(list[k])) { g.parent = null; break; } seen.add(list[k]); }
+    }
+    const keep = list.map((g) => g.mesh.edges.size > 0);
+    for (const [i, g] of list.entries()) if (keep[i]) for (let k = g.parent; k != null; k = list[k].parent) keep[k] = true;
+    const ids = list.map((g, i) => (keep[i] ? this.nextGroupId++ : null));
+    for (const [i, g] of list.entries()) if (keep[i]) this.groups.set(ids[i], { mesh: g.mesh, parent: g.parent != null ? ids[g.parent] : null });
     this.activeGroup = null;
     const point = (p) => (Array.isArray(p) && p.length === 3 && p.every(Number.isFinite) ? new THREE.Vector3(...p) : null);
     this.measurements = [];
@@ -716,12 +752,17 @@ export class Model {
       const a = s.get(e.a), b = s.get(e.b);
       if (caught([a, b], [[a, b]])) keys.push(`e${id}`);
     }
-    if (this.activeGroup == null) {
-      for (const [id, g] of this.groups) {
-        const gs = screenOf(g.mesh);
-        const segs = [...g.mesh.edges.values()].map((e) => [gs.get(e.a), gs.get(e.b)]);
-        if (caught([...gs.values()], segs)) keys.push(`g${id}`);
+    // Groups directly where you are, each with its subgroups.
+    for (const id of this.childGroups(this.activeGroup)) {
+      const pts = [], segs = [];
+      for (const gm of this.groupMeshes(id)) {
+        const gs = screenOf(gm);
+        pts.push(...gs.values());
+        for (const e of gm.edges.values()) segs.push([gs.get(e.a), gs.get(e.b)]);
       }
+      if (caught(pts, segs)) keys.push(`g${id}`);
+    }
+    if (this.activeGroup == null) {
       for (const it of this.measurements) {
         const a = toScreen(it.a), b = toScreen(it.b);
         if (caught([a, b], [[a, b]])) keys.push(`m${it.id}`);
@@ -742,16 +783,22 @@ export class Model {
   // --- groups ---
   get selectedGroups() { return [...this.selection].filter((k) => k[0] === 'g').map((k) => +k.slice(1)); }
 
-  /** Make the selected faces / edges a group (one undo step). Not inside a group. */
+  /**
+   * Make the selected faces / edges and groups one group (one undo step), where you are: inside a
+   * group it's a subgroup; selected groups go into it.
+   */
   groupSelection() {
-    const faces = this.selectedFaces, edges = this.selectedEdges;
-    if (this.activeGroup != null || (!faces.length && !edges.length)) return;
+    const faces = this.selectedFaces, edges = this.selectedEdges, groups = this.selectedGroups;
+    if (!faces.length && !edges.length && !groups.length) return;
     this.checkpoint();
     const mesh = new Mesh();
-    this.root.copyInto(mesh, faces, edges);
-    this.root.removeParts(faces, edges);
+    if (faces.length || edges.length) {
+      this.mesh.copyInto(mesh, faces, edges);
+      this.mesh.removeParts(faces, edges);
+    }
     const id = this.nextGroupId++;
-    this.groups.set(id, { mesh });
+    this.groups.set(id, { mesh, parent: this.activeGroup });
+    for (const g of groups) this.groups.get(g).parent = id;
     this.selection = new Set([`g${id}`]);
     this.sync();
   }
@@ -764,21 +811,25 @@ export class Model {
    */
   booleanSelection(op) {
     const ids = this.selectedGroups;
-    if (ids.length !== 2 || this.selection.size !== 2 || this.activeGroup != null) return 'two';
+    if (ids.length !== 2 || this.selection.size !== 2) return 'two';
     const [first, second] = ids.map((id) => this.groups.get(id).mesh);
-    if (!isSolid(first) || !isSolid(second)) return 'solid';
+    // (A group holding subgroups isn't one solid.)
+    if (ids.some((id) => this.childGroups(id).length) || !isSolid(first) || !isSolid(second)) return 'solid';
     const result = op === 'subtract' ? booleanOp(second, first, 'subtract') : booleanOp(first, second, op);
     if (!result) return 'empty';
     this.checkpoint();
     for (const id of ids) this.groups.delete(id);
     const id = this.nextGroupId++;
-    this.groups.set(id, { mesh: result });
+    this.groups.set(id, { mesh: result, parent: this.activeGroup });
     this.selection = new Set([`g${id}`]);
     this.sync();
     return null;
   }
 
-  /** Turn the selected groups back into plain geometry (one undo step); it stays selected. */
+  /**
+   * Turn the selected groups back into plain geometry where you are (one undo step); their
+   * subgroups come out as groups. It all stays selected.
+   */
   ungroupSelection() {
     const ids = this.selectedGroups;
     if (!ids.length) return;
@@ -786,7 +837,8 @@ export class Model {
     const keys = [];
     for (const id of ids) {
       const g = this.groups.get(id).mesh;
-      const { faces, edges } = g.copyInto(this.root, [...g.faces.keys()], [...g.edges.keys()]);
+      const { faces, edges } = g.copyInto(this.mesh, [...g.faces.keys()], [...g.edges.keys()]);
+      for (const c of this.childGroups(id)) { this.groups.get(c).parent = this.activeGroup; keys.push(`g${c}`); }
       this.groups.delete(id);
       keys.push(...faces.map((f) => `f${f}`), ...edges.map((e) => `e${e}`));
     }
@@ -802,12 +854,12 @@ export class Model {
     this.sync(false);
   }
 
-  /** Stop editing the group (it stays selected); an emptied group goes away. */
+  /** Stop editing the group, back to the one around it (it stays selected); an emptied group goes away. */
   exitGroup() {
     const id = this.activeGroup;
     if (id == null) return;
-    this.activeGroup = null;
-    if (!this.groups.get(id).mesh.edges.size) this.groups.delete(id);
+    this.activeGroup = this.groups.get(id).parent;
+    if (!this.groups.get(id).mesh.edges.size && !this.childGroups(id).length) this.groups.delete(id);
     this.selection = new Set(this.groups.has(id) ? [`g${id}`] : []);
     this.sync();
   }
@@ -828,7 +880,7 @@ export class Model {
   }
 
   selectAll() {
-    const groups = this.activeGroup == null ? [...this.groups.keys()].map((g) => `g${g}`) : [];
+    const groups = this.childGroups(this.activeGroup).map((g) => `g${g}`);
     const measures = this.activeGroup == null ? [...this.measurements.map((m) => `m${m.id}`), ...this.guides.map((g) => `u${g.id}`)] : [];
     this.select([...[...this.mesh.faces.keys()].map((f) => `f${f}`), ...[...this.mesh.edges.keys()].map((e) => `e${e}`), ...groups, ...measures]);
   }
@@ -839,7 +891,7 @@ export class Model {
     const measures = new Set(this.selectedMeasurements), guides = new Set(this.selectedGuides);
     this.selection.clear();
     this.checkpoint();
-    for (const id of groups) this.groups.delete(id);
+    for (const id of groups.flatMap((g) => this.groupTree(g))) this.groups.delete(id);
     this.measurements = this.measurements.filter((m) => !measures.has(m.id));
     this.guides = this.guides.filter((g) => !guides.has(g.id));
     if (faces.length || edges.length) this.mesh.erase(faces, edges);
@@ -858,11 +910,15 @@ export class Model {
       const r = this.mesh.copyInto(this.mesh, faces, edges, { fresh: true });
       keys.push(...r.faces.map((f) => `f${f}`), ...r.edges.map((e) => `e${e}`));
     }
-    for (const id of this.selectedGroups) {
+    // A group with its subgroups.
+    const copy = (id, parent) => {
       const nid = this.nextGroupId++;
-      this.groups.set(nid, { mesh: Mesh.fromData(this.groups.get(id).mesh.toData()) });
-      keys.push(`g${nid}`);
-    }
+      const kids = this.childGroups(id);
+      this.groups.set(nid, { mesh: Mesh.fromData(this.groups.get(id).mesh.toData()), parent });
+      for (const c of kids) copy(c, nid);
+      return nid;
+    };
+    for (const id of this.selectedGroups) keys.push(`g${copy(id, this.activeGroup)}`);
     for (const id of this.selectedMeasurements) {
       const it = this.measurements.find((x) => x.id === id);
       const nid = this.nextMeasureId++;
@@ -878,7 +934,7 @@ export class Model {
     const ids = (c) => keys.filter((k) => k[0] === c).map((k) => +k.slice(1));
     const faces = ids('f'), edges = ids('e'), measures = new Set(ids('m'));
     if (faces.length || edges.length) this.mesh.removeParts(faces, edges);
-    for (const id of ids('g')) this.groups.delete(id);
+    for (const id of ids('g').flatMap((g) => this.groupTree(g))) this.groups.delete(id);
     this.measurements = this.measurements.filter((m) => !measures.has(m.id));
     keys.forEach((k) => this.selection.delete(k));
   }
@@ -886,7 +942,7 @@ export class Model {
   /** Faces a colour change applies to: the selected faces and all faces of selected groups. */
   colorTargets() {
     const out = this.selectedFaces.filter((f) => this.mesh.faces.has(f)).map((f) => [this.mesh, f]);
-    for (const id of this.selectedGroups) { const m = this.groups.get(id)?.mesh; if (m) for (const f of m.faces.keys()) out.push([m, f]); }
+    for (const id of this.selectedGroups) if (this.groups.has(id)) for (const m of this.groupMeshes(id)) for (const f of m.faces.keys()) out.push([m, f]);
     return out;
   }
 
@@ -1121,23 +1177,25 @@ export class Model {
       const id = +k.slice(1);
       const ok = k[0] === 'f' ? active.faces.has(id) : k[0] === 'e' ? active.edges.has(id)
         : k[0] === 'm' ? this.measurements.some((m) => m.id === id) : k[0] === 'u' ? this.guides.some((g) => g.id === id)
-        : this.activeGroup == null && this.groups.has(id);
+        : this.groups.has(id) && this.groups.get(id).parent === this.activeGroup;
       if (!ok) this.selection.delete(k);
     }
     for (const obj of [...this.group.children]) { obj.geometry?.dispose(); this.group.remove(obj); }
     this.pickables = [];
 
+    // Editing a group: it and what's in it as usual, everything else faded. Its subgroups are
+    // picked whole (as groups are at the top level).
     const editingGroup = this.activeGroup != null;
     this.renderMesh(this.root, { active: !editingGroup, faded: editingGroup });
     for (const [id, g] of this.groups) {
       const isActive = id === this.activeGroup;
-      this.renderMesh(g.mesh, { active: isActive, faded: editingGroup && !isActive, groupId: isActive ? null : id });
+      this.renderMesh(g.mesh, { active: isActive, faded: !this.isWithin(id, this.activeGroup), groupId: isActive ? null : this.contextGroupOf(id) });
     }
     // Selected groups: a blue box around each.
     const boxPos = [];
     for (const id of this.selectedGroups) {
       const box = new THREE.Box3();
-      for (const v of this.groups.get(id).mesh.vertices.values()) box.expandByPoint(v);
+      for (const m of this.groupMeshes(id)) for (const v of m.vertices.values()) box.expandByPoint(v);
       box.expandByScalar(0.02);
       const c = (i) => new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z);
       for (const [a, b] of [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]]) {

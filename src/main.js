@@ -553,9 +553,9 @@ function refreshUI() {
   $('group-bar').hidden = model.activeGroup == null;
   $('sel-panel').hidden = !anything;
   if (anything) {
-    $('sel-group').hidden = model.activeGroup != null || (!faces.length && !edges.length);
+    $('sel-group').hidden = !faces.length && !edges.length && !groups.length; // (groups: into a new one around them)
     $('sel-ungroup').hidden = !groups.length;
-    $('sel-bool').hidden = !(groups.length === 2 && model.selection.size === 2 && model.activeGroup == null);
+    $('sel-bool').hidden = !(groups.length === 2 && model.selection.size === 2);
     $('sel-editgroup').hidden = groups.length !== 1;
     document.querySelector('.sel-helpers').hidden = !faces.length && !edges.length;
     const [key, text] = selectionSummary(faces, edges);
@@ -714,7 +714,7 @@ function focusView() {
   const ids = new Set();
   for (const f of model.selectedFaces) m.faces.get(f)?.loops.flat().forEach((v) => ids.add(v));
   for (const e of model.selectedEdges) { const edge = m.edges.get(e); if (edge) { ids.add(edge.a); ids.add(edge.b); } }
-  const groupPts = model.selectedGroups.flatMap((g) => [...model.groups.get(g).mesh.vertices.values()].map((v) => v.clone()));
+  const groupPts = model.selectedGroups.flatMap((g) => model.groupMeshes(g).flatMap((gm) => [...gm.vertices.values()].map((v) => v.clone())));
   // Measurements: their two ends. Guides: the labelled part (from the measured point to the
   // line), or just a point of the line (it's endless).
   const notePts = [];

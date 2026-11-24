@@ -1123,7 +1123,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
     const m = model.mesh;
     for (const f of model.selectedFaces) m.faces.get(f)?.loops.flat().forEach((v) => add(m.vertices.get(v)));
     for (const id of model.selectedEdges) { const e = m.edges.get(id); if (e) { add(m.vertices.get(e.a)); add(m.vertices.get(e.b)); } }
-    for (const g of model.selectedGroups) for (const v of model.groups.get(g).mesh.vertices.values()) add(v);
+    for (const g of model.selectedGroups) for (const gm of model.groupMeshes(g)) for (const v of gm.vertices.values()) add(v); // with its subgroups
     for (const id of model.selectedMeasurements) { const it = model.measurements.find((x) => x.id === id); if (it) { add(it.a); add(it.b); } }
     out.guides = [];
     out.tex = texCarried(out);
@@ -1264,7 +1264,7 @@ export function createTools({ getCamera, canvas, controls, scene, model, setting
       const id = +k.slice(1);
       if (k[0] === 'f') m.faces.get(id)?.loops.flat().forEach((v) => ids.add(v));
       else if (k[0] === 'e') { const ed = m.edges.get(id); if (ed) { ids.add(ed.a); ids.add(ed.b); } }
-      else if (k[0] === 'g') { const g = model.groups.get(id); if (g) edgesOf(g.mesh, new Set(g.mesh.vertices.keys())); }
+      else if (k[0] === 'g' && model.groups.has(id)) for (const gm of model.groupMeshes(id)) edgesOf(gm, new Set(gm.vertices.keys()));
       else if (k[0] === 'm') {
         const it = model.measurements.find((x) => x.id === id);
         if (it) { corners.add(it.a); corners.add(it.b); mids.push(it.a.clone().add(it.b).multiplyScalar(0.5)); }
