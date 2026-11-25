@@ -169,6 +169,8 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
       if (f.key === 'shadows' || f.key === 'shadowSoftness') needs.push(v.sun);
       if (f.key === 'shadowSoftness') needs.push(v.shadows);
       if (f.key === 'background') needs.push(!v.skyVisible);
+      if (f.key === 'fogDistance') needs.push(v.fog);
+      if (f.key === 'ambientOcclusion' || f.key === 'aoRadius') needs.push(!noAO);
       input.disabled = needs.includes(false);
     }
 

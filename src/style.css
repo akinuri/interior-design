@@ -423,6 +423,12 @@ button.icon.lang {
   opacity: 0.35;
   cursor: default;
 }
+/* A setting not in use: its name and value fade too, not just the control (else it looks in use
+   but locked). The control is inside the label, or (sliders) right after it. */
+.panel label:has(> :is(input, select):disabled) > :is(span, output),
+.panel label:has(+ input:disabled) > :is(span, output) {
+  opacity: 0.4;
+}
 
 .panel input[type="color"] {
   width: 44px;
