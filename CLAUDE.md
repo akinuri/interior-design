@@ -97,8 +97,9 @@ README.md describes the features for users; this file is what you need to keep d
 - SketchUp's measure-tool mode cycling (guide line / point / measure) was discussed and skipped.
 - **To come back to** (owner said so): restructuring the right cards. Proposal discussed, not decided: Scene
   (look, colours, haze), Lighting (sun, sky fill / bounce, shadows, exposure, realism + AO), Style (back faces, view
-  shading, edges), Grid (incl. fade; line colour already moved), View. Go in small steps. Also lighting: interiors
-  (ceilings got only the ground-coloured bounce; now a neutral one, "okay for now").
+  shading, edges), Grid (incl. fade; line colour already moved), View. Go in small steps.
+- **To come back to**: lighting, both the normal look and realistic rendering (owner wants to adjust them). Known so far:
+  interiors (ceilings got only the ground-coloured bounce; now a neutral one, "okay for now").
 
 ## Testing
 
