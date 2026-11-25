@@ -11,6 +11,7 @@ import { thumbnail, builtinSize, readImageFile, unitsOf, isGlass, hasPicture, GL
 import { createPerson } from './person.js';
 import { createOrbitCenter } from './orbitCenter.js';
 import { createSideGrid } from './sideGrid.js';
+import { createViewCube } from './viewCube.js';
 import { createProjectIO } from './io.js';
 import { installLogCapture, runDiagnostics, summarize } from './diagnostics.js';
 import { initTooltips, setTip, showAllTips, allTipsShown } from './tooltips.js';
@@ -94,10 +95,18 @@ const environment = createSceneSettings({
   scene, renderer, pipeline, skyLight: sky, sun, headLight, skyDome, ground,
 });
 
-// The Selection card sits below the top bar, whose height grows if it wraps to two rows.
-new ResizeObserver(() => {
-  document.documentElement.style.setProperty('--top-bar-bottom', `${document.querySelector('.toolbar').getBoundingClientRect().bottom + 12}px`);
-}).observe(document.querySelector('.toolbar'));
+// The Selection card sits below the top bar, whose height grows if it wraps to two rows; the
+// view cube just right of it.
+function placeByTopBar() {
+  const r = document.querySelector('.toolbar').getBoundingClientRect();
+  document.documentElement.style.setProperty('--top-bar-bottom', `${r.bottom + 12}px`);
+  // (By the bars themselves: wrapped onto two rows, the bar's box is wider than they are.)
+  const right = Math.max(...[...document.querySelectorAll('.toolbar .bar')].map((b) => b.getBoundingClientRect().right));
+  document.getElementById('view-cube').style.left = `${right + 28}px`; // (some room from the bars)
+}
+new ResizeObserver(placeByTopBar).observe(document.querySelector('.toolbar'));
+document.querySelectorAll('.toolbar .bar').forEach((b) => new ResizeObserver(placeByTopBar).observe(b));
+window.addEventListener('resize', placeByTopBar);
 
 // --- face style buttons (top bar) ---
 const faceStyleButtons = document.querySelectorAll('[data-face-style]');
@@ -613,11 +622,10 @@ const STD_VIEWS = {
   back: new THREE.Vector3(0, 0, -1),
 };
 let stdView = null; // the standard view we're in (null = free view)
-let viewBefore = null; // where to go back to when the active view's button is clicked again
-const viewButtons = document.querySelectorAll('[data-view]');
+let viewBefore = null; // where to go back to when the active view's side is clicked again
 function markStdView(name) {
   stdView = name;
-  viewButtons.forEach((b) => b.classList.toggle('active', b.dataset.view === name));
+  viewCube.setActive(name);
 }
 function setStdView(name) {
   person.exitEye();
@@ -634,7 +642,68 @@ function setStdView(name) {
   flyTo(target.clone().addScaledVector(STD_VIEWS[name].clone().normalize(), d), target);
   markStdView(name);
 }
-viewButtons.forEach((b) => b.addEventListener('click', () => setStdView(b.dataset.view)));
+// The view cube (right of the top bar): a side gives that standard view (again: back to where we were);
+// an edge or a corner looks from between its sides; dragging it orbits.
+const viewCube = createViewCube({
+  container: $('view-cube'),
+  labels: () => Object.fromEntries(Object.keys(STD_VIEWS).map((k) => [k, t(`cube.${k}`)])),
+  onPick(d) {
+    const name = Object.keys(STD_VIEWS).find((k) => STD_VIEWS[k].clone().round().equals(d));
+    if (name) { setStdView(name); return; }
+    person.exitEye();
+    const target = controls.target.clone();
+    const dist = Math.max(camera.position.distanceTo(target), 8);
+    markStdView(null);
+    viewBefore = null;
+    flyTo(target.clone().addScaledVector(d.clone().normalize(), dist), target);
+  },
+  onOrbit(dx, dy) {
+    if (person.eye) return;
+    fly = null;
+    // As the orbit controls turn: dragging right swings the scene (and the cube) to the right.
+    const s = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+    s.theta -= dx * 0.01;
+    s.phi = THREE.MathUtils.clamp(s.phi - dy * 0.01, 0.001, Math.PI - 0.001);
+    camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(s));
+    controls.update();
+    if (stdView) { markStdView(null); viewBefore = null; }
+  },
+});
+onLangChange(() => viewCube.setLabels());
+
+// Its size (right-click menu): small or normal; remembered in this browser (not in designs).
+const CUBE_SIZE_KEY = 'interior-design.viewCube.v1';
+const CUBE_SIZES = { small: 76, normal: 112 };
+function setCubeSize(name) {
+  if (!CUBE_SIZES[name]) name = 'small'; // (the default)
+  document.documentElement.style.setProperty('--cube-size', `${CUBE_SIZES[name]}px`);
+  document.querySelectorAll('[data-cube-size]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.cubeSize === name);
+    b.setAttribute('aria-checked', String(b.dataset.cubeSize === name));
+  });
+  try { localStorage.setItem(CUBE_SIZE_KEY, name); } catch { /* ignore */ }
+  placeByTopBar(); // (the top bar shifts by half the cube's width)
+}
+try { setCubeSize(localStorage.getItem(CUBE_SIZE_KEY)); } catch { setCubeSize('small'); }
+const cubeMenu = $('cube-menu');
+const closeCubeMenu = () => { cubeMenu.hidden = true; };
+$('view-cube').addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  cubeMenu.hidden = false;
+  // At the mouse, kept inside the window.
+  const r = cubeMenu.getBoundingClientRect();
+  cubeMenu.style.left = `${Math.min(e.clientX, innerWidth - r.width - 8)}px`;
+  cubeMenu.style.top = `${Math.min(e.clientY, innerHeight - r.height - 8)}px`;
+});
+cubeMenu.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-cube-size]');
+  if (b) { setCubeSize(b.dataset.cubeSize); closeCubeMenu(); }
+});
+document.addEventListener('pointerdown', (e) => { if (!cubeMenu.hidden && !cubeMenu.contains(e.target)) closeCubeMenu(); }, true);
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !cubeMenu.hidden) { closeCubeMenu(); e.stopPropagation(); e.preventDefault(); }
+}, true);
+window.addEventListener('blur', closeCubeMenu);
 
 // Side views in parallel projection: a vertical grid behind the model (graph paper for
 // reading heights / widths). Shown only while the view still looks straight from that side.
@@ -1040,6 +1109,7 @@ function frame() {
   model.guideView.update(camera, controls.target);
   updateSideGrid();
   pipeline.render(camera);
+  viewCube.update(camera);
 }
 renderer.setAnimationLoop(frame);
 

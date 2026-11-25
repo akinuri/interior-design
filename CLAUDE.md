@@ -24,6 +24,9 @@ README.md describes the features for users; this file is what you need to keep d
   `crossings()` for intersections), typed values, axis / edge-aligned locks.
 - `main.js`: UI wiring (cards, buttons, views, Home / Focus framing, shortcuts).
 - `boolean.js`: union / subtract / intersect of closed groups (BSP CSG, then merged back with `rebuildPlane`).
+- `viewCube.js`: the view cube (right of the top bar, placed by `placeByTopBar` in main; bottom left on phones; own small renderer, draws only on change): sides = standard views
+  (`setStdView` in main), edges / corners = in-between views, drag = orbit. Replaced the six view buttons.
+  Right-click: size, small (default) / normal, kept in localStorage.
 - `materials.js` (textures), `person.js` (figure, eye view, walking), `measurements.js`, `i18n.js`, `units.js`, others small.
 
 ## Conventions

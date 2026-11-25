@@ -1,6 +1,7 @@
 :root {
   interpolate-size: allow-keywords; /* lets card bodies animate to height: auto */
   --card-w: 232px; /* the right cards (and the Selection card) */
+  --cube-size: 76px; /* the view cube (small by default; main.js sets it) */
   --card-bg: rgba(250, 249, 247, 0.72);
   --card-header: rgba(43, 45, 49, 0.06);
   --card-header-hover: rgba(43, 45, 49, 0.1);
@@ -39,12 +40,13 @@ html, body {
 }
 
 /* Top bar: like the left tool bar, it sits halfway into its centred gap:
-   left = (viewport - bar) / 4. */
+   left = (viewport - bar) / 4; then left by half the view cube's width, as the cube sits just
+   right of it (placed in main.js). */
 .toolbar {
   position: fixed;
   top: 12px;
   left: 25%;
-  transform: translateX(-25%);
+  transform: translateX(calc(-25% - (var(--cube-size) + 28px) / 2));
   /* stay between the side panels (card width + 12px margin + gap each side); wrap if needed */
   max-width: calc(100% - 2 * (var(--card-w) + 30px));
   width: max-content;
@@ -501,6 +503,47 @@ button.icon.lang {
 
 .panel .card-body button.danger:disabled { background: #fdf3f3; border-color: rgba(214, 69, 69, 0.4); }
 
+/* The view cube: just right of the top bar (main.js sets left); bottom left on phones. */
+.view-cube {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  width: var(--cube-size);
+  height: var(--cube-size);
+  z-index: 5;
+}
+.view-cube canvas { display: block; }
+
+/* A small right-click menu (the view cube's size), frosted like the bars; ✓ on the current item. */
+.ctx-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 120px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  backdrop-filter: blur(12px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15), inset 0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+.ctx-menu[hidden] { display: none; }
+.ctx-menu button {
+  position: relative;
+  padding: 5px 10px 5px 26px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text);
+}
+.ctx-menu button:hover { background: var(--card-header-hover); }
+.ctx-menu button.active::before { content: '\2713'; position: absolute; left: 9px; }
+
 .fps {
   position: fixed;
   right: 12px;
@@ -726,6 +769,7 @@ button.icon.lang {
     scrollbar-width: none;
   }
   .toolbar::-webkit-scrollbar { display: none; }
+  .view-cube { top: auto; left: 12px !important; bottom: 12px; }
   .toolbar .group, .toolbar .bar { flex-shrink: 0; }
 
   /* Tools: left edge, below the top bar. */
