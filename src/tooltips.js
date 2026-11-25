@@ -34,6 +34,7 @@ let allShown = null; // the instances shown by showAllTips, or null
 function placementFor(el) {
   if (el.closest('.tools')) return 'right';
   if (el.closest('.toolbar')) return 'bottom';
+  if (el.closest('.view-cube')) return 'bottom-start'; // (rightwards: the snap button's tip is just left of it)
   if (el.closest('.fps')) return 'top-end';
   if (el.closest('.panel.selection')) return 'bottom';
   if (el.closest('.panel')) return 'left';
