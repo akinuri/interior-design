@@ -184,16 +184,21 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
 
   const cardKeys = { scene: [], render: [] };
   let card = 'scene';
+  let container = containers[card];
   for (const f of FIELDS) {
     if (f.heading) {
+      // Each section is a framed box, its heading in the frame (so sections read apart).
       card = f.card ?? card;
-      const h = document.createElement('h4');
-      h.dataset.i18n = f.heading;
-      h.textContent = t(f.heading);
-      containers[card].append(h);
+      const box = document.createElement('fieldset');
+      box.className = 'fields section';
+      const legend = document.createElement('legend');
+      legend.dataset.i18n = f.heading;
+      legend.textContent = t(f.heading);
+      box.append(legend);
+      containers[card].append(box);
+      container = box;
       continue;
     }
-    const container = containers[card];
     if (f.type === 'presets') {
       // A row of buttons that apply a preset (not a stored value of its own).
       const row = document.createElement('div');

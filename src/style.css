@@ -1,5 +1,6 @@
 :root {
   interpolate-size: allow-keywords; /* lets card bodies animate to height: auto */
+  --card-w: 232px; /* the right cards (and the Selection card) */
   --card-bg: rgba(250, 249, 247, 0.72);
   --card-header: rgba(43, 45, 49, 0.06);
   --card-header-hover: rgba(43, 45, 49, 0.1);
@@ -44,8 +45,8 @@ html, body {
   top: 12px;
   left: 25%;
   transform: translateX(-25%);
-  /* stay between the side panels (210px + 12px margin + gap each side); wrap if needed */
-  max-width: calc(100% - 2 * 240px);
+  /* stay between the side panels (card width + 12px margin + gap each side); wrap if needed */
+  max-width: calc(100% - 2 * (var(--card-w) + 30px));
   width: max-content;
   flex-wrap: wrap;
   justify-content: center;
@@ -111,7 +112,7 @@ kbd {
   position: fixed;
   top: 12px;
   right: 12px;
-  width: 210px;
+  width: var(--card-w);
   max-height: calc(100vh - 60px); /* leave room for the FPS readout below */
   overflow-y: auto;
   display: flex;
@@ -129,7 +130,7 @@ kbd {
   scrollbar-gutter: stable;
 }
 
-.panel:not(.selection) > .card { width: 210px; }
+.panel:not(.selection) > .card { width: var(--card-w); }
 
 /* Scroll shadows: zero-height strips pinned to the panel's top/bottom edge
    (sticky), shown only when there is more content in that direction. */
@@ -239,11 +240,11 @@ button.icon.lang {
 }
 
 /* Selection card: right side, left of the cards column
-   (6px gap + 10px scrollbar lane + 6px gap + 210px cards = 232px, then a 16px gap). */
+   (6px gap + 10px scrollbar lane + 6px gap + the cards, then a 16px gap). */
 .panel.selection {
   top: var(--top-bar-bottom, 72px); /* below the top bar (which can wrap to two rows on narrow windows) */
-  right: calc(6px + 10px + 6px + 210px + 16px);
-  width: 210px;
+  right: calc(6px + 10px + 6px + var(--card-w) + 16px);
+  width: var(--card-w);
 }
 
 .panel .card[hidden] { display: none; }
@@ -378,7 +379,7 @@ button.icon.lang {
   gap: 8px;
 }
 
-.panel .card-body { padding: 10px 12px 12px; }
+.panel .card-body { padding: 10px 8px 10px; }
 
 /* Smooth open/close where supported (Chromium 131+); instant elsewhere. */
 .panel .card::details-content {
@@ -394,6 +395,25 @@ button.icon.lang {
   font-size: 11px;
   font-weight: 600;
   color: var(--muted);
+}
+
+/* A section of a card: a framed, lightly filled box with its heading in the frame. */
+.panel fieldset.section {
+  margin: 6px 0 0;
+  padding: 6px 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.45);
+  min-width: 0;
+}
+.panel fieldset.section > legend {
+  padding: 0 5px;
+  margin-left: -3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #4a4d53; /* between --muted and --text */
 }
 
 .panel input:disabled,
