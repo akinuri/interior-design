@@ -90,8 +90,8 @@ scene.add(skyDome.object);
 const pipeline = createRenderPipeline({ renderer, scene, camera: persp });
 
 const environment = createSceneSettings({
-  containers: { scene: document.getElementById('scene-fields'), render: document.getElementById('render-fields') },
-  resetButtons: { scene: document.getElementById('scene-reset'), render: document.getElementById('render-reset') },
+  containers: { scene: document.getElementById('scene-fields'), render: document.getElementById('render-fields'), grid: document.getElementById('grid-scene-fields') },
+  resetButtons: { scene: document.getElementById('scene-reset'), render: document.getElementById('render-reset'), grid: document.getElementById('grid-reset') },
   scene, renderer, pipeline, skyLight: sky, sun, headLight, skyDome, ground,
 });
 

@@ -46,7 +46,8 @@ const PRESETS = {
 
 // Drives the panel UI: one entry per control. `heading` / `label` / option texts are
 // translation keys (src/i18n.js). `heading` entries are sub-titles;
-// a heading's `card` (default: the previous one) says which panel card it goes in.
+// a heading's `card` (default: the previous one) says which panel card it goes in; a field's
+// `into` puts that one control in another card's container (its reset button resets it too).
 const FIELDS = [
   { heading: 's.look', card: 'scene' },
   { type: 'presets', options: [['natural', 's.look.natural'], ['clean', 's.look.clean']] },
@@ -57,11 +58,11 @@ const FIELDS = [
   { key: 'skyTop', label: 's.sky', type: 'color' },
   { key: 'horizon', label: 's.horizon', type: 'color' },
   { key: 'ground', label: 's.ground', type: 'color' },
-  { key: 'gridColor', label: 's.gridLines', type: 'color' },
   { heading: 's.distance' },
   { key: 'fog', label: 's.fog', type: 'check' },
   { key: 'fogDistance', label: 's.fogDistance', type: 'range', min: 20, max: 1000, step: 10, unit: 'm' },
   { key: 'gridFade', label: 's.gridFade', type: 'range', min: 10, max: 300, step: 5, unit: 'm' },
+  { key: 'gridColor', label: 'f.lineColor', type: 'color', into: 'grid' }, // (in the Grid card)
   { heading: 's.lighting' },
   { key: 'skyLight', label: 's.skyLight', type: 'range', min: 0, max: 4, step: 0.05 },
   { key: 'sunLight', label: 's.sunLight', type: 'range', min: 0, max: 4, step: 0.05 },
@@ -182,9 +183,9 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
   const outputs = {};
   const fmt = (f, val) => `${Number(val).toFixed(f.step < 1 ? 2 : 0)}${f.unit ? ` ${f.unit}` : ''}`.replace(' °', '°');
 
-  const cardKeys = { scene: [], render: [] };
+  const cardKeys = { scene: [], render: [], grid: [] };
   let card = 'scene';
-  let container = containers[card];
+  let section = containers[card]; // where controls go: the current section's box
   for (const f of FIELDS) {
     if (f.heading) {
       // Each section is a framed box, its heading in the frame (so sections read apart).
@@ -196,7 +197,7 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
       legend.textContent = t(f.heading);
       box.append(legend);
       containers[card].append(box);
-      container = box;
+      section = box;
       continue;
     }
     if (f.type === 'presets') {
@@ -211,10 +212,11 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
         button.addEventListener('click', () => { Object.assign(values, PRESETS[name]); sync(); apply(); });
         row.append(button);
       }
-      container.append(row);
+      section.append(row);
       continue;
     }
-    cardKeys[card].push(f.key);
+    cardKeys[f.into ?? card].push(f.key);
+    const container = f.into ? containers[f.into] : section;
     const label = document.createElement('label');
     const text = document.createElement('span');
     text.dataset.i18n = f.label;
