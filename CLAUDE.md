@@ -95,6 +95,10 @@ README.md describes the features for users; this file is what you need to keep d
 - Line / rect / circle don't snap to geometry outside a group being edited (asked, no answer yet).
 - Booleans: groups only (not loose geometry), closed solids only; curved shapes may leave extra edges.
 - SketchUp's measure-tool mode cycling (guide line / point / measure) was discussed and skipped.
+- **To come back to** (owner said so): restructuring the right cards. Proposal discussed, not decided: Scene
+  (look, colours, haze), Lighting (sun, sky fill / bounce, shadows, exposure, realism + AO), Style (back faces, view
+  shading, edges), Grid (incl. fade; line colour already moved), View. Go in small steps. Also lighting: interiors
+  (ceilings got only the ground-coloured bounce; now a neutral one, "okay for now").
 
 ## Testing
 
