@@ -47,7 +47,8 @@ const PRESETS = {
 // Drives the panel UI: one entry per control. `heading` / `label` / option texts are
 // translation keys (src/i18n.js). `heading` entries are sub-titles;
 // a heading's `card` (default: the previous one) says which panel card it goes in; a field's
-// `into` puts that one control in another card's container (its reset button resets it too).
+// `into` puts that one control in another card's container (its reset button resets it too);
+// `tip`: a tooltip on its name, saying in plain words what it does (for the technical ones).
 const FIELDS = [
   { heading: 's.look', card: 'scene' },
   { type: 'presets', options: [['natural', 's.look.natural'], ['clean', 's.look.clean']] },
@@ -64,28 +65,28 @@ const FIELDS = [
   { key: 'gridFade', label: 's.gridFade', type: 'range', min: 10, max: 300, step: 5, unit: 'm' },
   { key: 'gridColor', label: 'f.lineColor', type: 'color', into: 'grid' }, // (in the Grid card)
   { heading: 's.lighting' },
-  { key: 'skyLight', label: 's.skyLight', type: 'range', min: 0, max: 4, step: 0.05 },
+  { key: 'skyLight', label: 's.skyLight', tip: 's.skyLight.tip', type: 'range', min: 0, max: 4, step: 0.05 },
   { key: 'sunLight', label: 's.sunLight', type: 'range', min: 0, max: 4, step: 0.05 },
   { key: 'sunAzimuth', label: 's.sunDirection', type: 'range', min: 0, max: 360, step: 1, unit: '°' },
   { key: 'sunElevation', label: 's.sunHeight', type: 'range', min: 5, max: 90, step: 1, unit: '°' },
 
   { heading: 's.mode', card: 'render' },
-  { key: 'realism', label: 's.realism', type: 'check' },
+  { key: 'realism', label: 's.realism', tip: 's.realism.tip', type: 'check' },
   { heading: 's.clarity' },
   { key: 'edges', label: 's.edges', type: 'check' },
   { key: 'edgeStrength', label: 's.edgeStrength', type: 'range', min: 0, max: 1, step: 0.05 },
-  { key: 'viewShading', label: 's.viewShading', type: 'range', min: 0, max: 1, step: 0.05 },
-  { key: 'backFaces', label: 's.backFaces', type: 'check' },
+  { key: 'viewShading', label: 's.viewShading', tip: 's.viewShading.tip', type: 'range', min: 0, max: 1, step: 0.05 },
+  { key: 'backFaces', label: 's.backFaces', tip: 's.backFaces.tip', type: 'check' },
   { key: 'backColor', label: 's.backColor', type: 'color' },
   { heading: 's.light' },
-  { key: 'envLight', label: 's.envLight', type: 'range', min: 0, max: 2, step: 0.05, realism: true },
-  { key: 'exposure', label: 's.exposure', type: 'range', min: 0.3, max: 2, step: 0.05 },
+  { key: 'envLight', label: 's.envLight', tip: 's.envLight.tip', type: 'range', min: 0, max: 2, step: 0.05, realism: true },
+  { key: 'exposure', label: 's.exposure', tip: 's.exposure.tip', type: 'range', min: 0.3, max: 2, step: 0.05 },
   { heading: 's.sunShadows' },
   { key: 'sun', label: 's.sun', type: 'check' },
   { key: 'shadows', label: 's.shadows', type: 'check' },
-  { key: 'shadowSoftness', label: 's.shadowSoftness', type: 'range', min: 0, max: 10, step: 0.5, realism: true },
-  { key: 'ambientOcclusion', label: 's.ao', type: 'range', min: 0, max: 1, step: 0.05, realism: true },
-  { key: 'aoRadius', label: 's.aoReach', type: 'range', min: 0.1, max: 2, step: 0.05, unit: 'm', realism: true },
+  { key: 'shadowSoftness', label: 's.shadowSoftness', tip: 's.shadowSoftness.tip', type: 'range', min: 0, max: 10, step: 0.5, realism: true },
+  { key: 'ambientOcclusion', label: 's.ao', tip: 's.ao.tip', type: 'range', min: 0, max: 1, step: 0.05, realism: true },
+  { key: 'aoRadius', label: 's.aoReach', tip: 's.aoReach.tip', type: 'range', min: 0.1, max: 2, step: 0.05, unit: 'm', realism: true },
 ];
 
 /**
@@ -224,6 +225,7 @@ export function createSceneSettings({ containers, resetButtons, scene, renderer,
     text.dataset.i18n = f.label;
     text.textContent = t(f.label);
     label.append(text);
+    if (f.tip) { label.dataset.i18nTitle = f.tip; label.title = t(f.tip); }
     const input = document.createElement(f.type === 'select' ? 'select' : 'input');
     if (f.type === 'select') {
       for (const [value, key] of f.options) {
